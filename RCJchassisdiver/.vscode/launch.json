@@ -1,0 +1,40 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "DAPLink: Flash only",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "echo DAPLink flash complete",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "DAPLink: flash Debug",
+            "presentation": {
+                "group": "DAPLink",
+                "order": 1
+            }
+        },
+        {
+            "name": "DAPLink: Debug with pyOCD",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/RCJchassisdiver.elf",
+            "servertype": "pyocd",
+            "serverpath": "${workspaceFolder}/.vscode/pyocd-cortex-debug.sh",
+            "gdbPath": "/home/chase/.local/share/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb",
+            "targetId": "stm32f407vetx",
+            "interface": "swd",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "CMake: build Debug",
+            "serverArgs": [
+                "--frequency",
+                "4000000"
+            ],
+            "showDevDebugOutput": "none",
+            "presentation": {
+                "group": "DAPLink",
+                "order": 2
+            }
+        }
+    ]
+}
