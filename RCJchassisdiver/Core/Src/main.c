@@ -28,7 +28,7 @@
 #include "bsp_usart.h"
 #include "bsp_bno085.h"
 #include "bsp_motor.h"
-#include "bsp_chassis_odom_test.h"
+#include "app_chassis_task.h"
 
 /* USER CODE END Includes */
 
@@ -120,7 +120,7 @@ int main(void)
   {
     Error_Handler();
   }
-  BspChassisOdomTest_Init();
+  AppChassisTask_Init();
 
   Printf(BSP_USART_6, "BNO085 test start\r\n");
   if (Bno085_Init() == HAL_OK)
@@ -224,10 +224,10 @@ int main(void)
     {
       chassis_gyro_valid = 1U;
     }
-    BspChassisOdomTest_Task(chassis_yaw_valid,
-                            bno085_yaw_deg,
-                            chassis_gyro_valid,
-                            bno085_gyro_z_deg_s);
+    AppChassisTask_Task(chassis_yaw_valid,
+                        bno085_yaw_deg,
+                        chassis_gyro_valid,
+                        bno085_gyro_z_deg_s);
     HAL_Delay(5);
   }
   /* USER CODE END 3 */
