@@ -28,7 +28,7 @@
 #include "bsp_usart.h"
 #include "bsp_bno085.h"
 #include "bsp_motor.h"
-#include "bsp_motor_test.h"
+#include "bsp_chassis_test.h"
 
 /* USER CODE END Includes */
 
@@ -110,7 +110,7 @@ int main(void)
   {
     Error_Handler();
   }
-  BspMotorTest_Init();
+  BspChassisTest_Init();
 
   Printf(BSP_USART_6, "BNO085 test start\r\n");
   if (Bno085_Init() == HAL_OK)
@@ -166,7 +166,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    BspMotorTest_Task();
+    BspChassisTest_Task();
 
     if (Bno085_ReadSensorData(&bno085_sensor_data) == HAL_OK)
     {

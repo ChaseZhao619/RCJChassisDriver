@@ -3,6 +3,7 @@
 #include "bsp_motor.h"
 #include "bsp_usart.h"
 
+#if BSP_MOTOR_TEST_ENABLE
 typedef struct
 {
     int16_t current[BSP_MOTOR_COUNT];
@@ -63,6 +64,7 @@ static void PrintMotorFeedback(uint8_t can_id)
            feedback->temperature,
            (long)feedback->total_ecd);
 }
+#endif
 
 void BspMotorTest_Init(void)
 {

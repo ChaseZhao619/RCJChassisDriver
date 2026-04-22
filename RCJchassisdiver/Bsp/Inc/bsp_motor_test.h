@@ -9,7 +9,7 @@ extern "C" {
 #include <stdint.h>
 
 #ifndef BSP_MOTOR_TEST_ENABLE
-#define BSP_MOTOR_TEST_ENABLE 1U
+#define BSP_MOTOR_TEST_ENABLE 0U
 #endif
 
 #ifndef BSP_MOTOR_TEST_CURRENT
