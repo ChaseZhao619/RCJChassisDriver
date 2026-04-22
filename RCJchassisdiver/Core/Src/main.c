@@ -28,7 +28,7 @@
 #include "bsp_usart.h"
 #include "bsp_bno085.h"
 #include "bsp_motor.h"
-#include "bsp_chassis_test.h"
+#include "bsp_chassis_angle_test.h"
 
 /* USER CODE END Includes */
 
@@ -39,6 +39,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#ifndef MAIN_IMU_PRINT_ENABLE
+#define MAIN_IMU_PRINT_ENABLE 0U
+#endif
+
+#ifndef MAIN_CHASSIS_YAW_TIMEOUT_MS
+#define MAIN_CHASSIS_YAW_TIMEOUT_MS 300U
+#endif
 
 /* USER CODE END PD */
 
@@ -58,6 +65,7 @@ uint8_t bno085_last_header[4];
 float bno085_yaw_deg;
 uint8_t bno085_zero_key_last;
 uint32_t bno085_last_print_tick;
+uint32_t bno085_yaw_update_tick;
 
 /* USER CODE END PV */
 
@@ -110,7 +118,7 @@ int main(void)
   {
     Error_Handler();
   }
-  BspChassisTest_Init();
+  BspChassisAngleTest_Init();
 
   Printf(BSP_USART_6, "BNO085 test start\r\n");
   if (Bno085_Init() == HAL_OK)
@@ -166,7 +174,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    BspChassisTest_Task();
+    uint8_t chassis_yaw_valid = 0U;
+    uint32_t now = HAL_GetTick();
 
     if (Bno085_ReadSensorData(&bno085_sensor_data) == HAL_OK)
     {
@@ -182,17 +191,27 @@ int main(void)
       bno085_zero_key_last = zero_key_pressed;
 
       if ((bno085_sensor_data.has_rotation != 0U) &&
-          (Bno085_GetYawDegrees(&bno085_sensor_data.rotation, &bno085_yaw_deg) == HAL_OK) &&
-          ((HAL_GetTick() - bno085_last_print_tick) >= 50U))
+          (Bno085_GetYawDegrees(&bno085_sensor_data.rotation, &bno085_yaw_deg) == HAL_OK))
       {
-        bno085_last_print_tick = HAL_GetTick();
-        Printf(BSP_USART_6,
-               "imu:%.2f,%u,%ld\n",
-               bno085_yaw_deg,
-               bno085_sensor_data.rotation.status,
-               (long)bno085_sensor_data.gyro.z_raw);
+        bno085_yaw_update_tick = now;
+#if MAIN_IMU_PRINT_ENABLE
+        if ((now - bno085_last_print_tick) >= 50U)
+        {
+          bno085_last_print_tick = now;
+          Printf(BSP_USART_6,
+                 "imu:%.2f,%u,%ld\n",
+                 bno085_yaw_deg,
+                 bno085_sensor_data.rotation.status,
+                 (long)bno085_sensor_data.gyro.z_raw);
+        }
+#endif
       }
     }
+    if ((now - bno085_yaw_update_tick) <= MAIN_CHASSIS_YAW_TIMEOUT_MS)
+    {
+      chassis_yaw_valid = 1U;
+    }
+    BspChassisAngleTest_Task(chassis_yaw_valid, bno085_yaw_deg);
     HAL_Delay(5);
   }
   /* USER CODE END 3 */
