@@ -25,6 +25,18 @@ extern "C" {
 #define BSP_CHASSIS_ANGLE_KD                    0.0f
 #endif
 
+#ifndef BSP_CHASSIS_ANGLE_GYRO_KD
+#define BSP_CHASSIS_ANGLE_GYRO_KD               10.0f
+#endif
+
+#ifndef BSP_CHASSIS_ANGLE_GYRO_DEADBAND_DPS
+#define BSP_CHASSIS_ANGLE_GYRO_DEADBAND_DPS     1.5f
+#endif
+
+#ifndef BSP_CHASSIS_GYRO_Z_DIR
+#define BSP_CHASSIS_GYRO_Z_DIR                  -1
+#endif
+
 #ifndef BSP_CHASSIS_ANGLE_DEADBAND_DEG
 #define BSP_CHASSIS_ANGLE_DEADBAND_DEG          0.10f
 #endif
@@ -75,6 +87,14 @@ extern "C" {
 
 #ifndef BSP_CHASSIS_MOVE_BIAS_MIN_RPM
 #define BSP_CHASSIS_MOVE_BIAS_MIN_RPM           50.0f
+#endif
+
+#ifndef BSP_CHASSIS_FORWARD_TO_LEFT_COMP
+#define BSP_CHASSIS_FORWARD_TO_LEFT_COMP        -0.08f
+#endif
+
+#ifndef BSP_CHASSIS_LEFT_TO_FORWARD_COMP
+#define BSP_CHASSIS_LEFT_TO_FORWARD_COMP        0.0f
 #endif
 
 #ifndef BSP_CHASSIS_YAW_CTRL_DIR
@@ -179,6 +199,12 @@ HAL_StatusTypeDef BspChassis_SetBodySpeedAngleHold(float forward_rpm,
                                                    float target_yaw_deg,
                                                    float current_yaw_deg,
                                                    int16_t max_current);
+HAL_StatusTypeDef BspChassis_SetBodySpeedAngleHoldGyro(float forward_rpm,
+                                                       float left_rpm,
+                                                       float target_yaw_deg,
+                                                       float current_yaw_deg,
+                                                       float gyro_z_deg_s,
+                                                       int16_t max_current);
 HAL_StatusTypeDef BspChassis_SetVelocity(float vx_mm_s,
                                          float vy_mm_s,
                                          float wz_rad_s,
@@ -191,6 +217,9 @@ float BspChassis_WrapAngle360(float angle_deg);
 float BspChassis_GetAngleErrorDeg(float target_deg, float current_deg);
 int16_t BspChassis_CalcAngleCurrent(float target_yaw_deg, float current_yaw_deg);
 float BspChassis_CalcAngleSpeed(float target_yaw_deg, float current_yaw_deg);
+float BspChassis_CalcAngleSpeedGyro(float target_yaw_deg,
+                                    float current_yaw_deg,
+                                    float gyro_z_deg_s);
 const BspChassisMotorCurrent *BspChassis_GetLastCurrent(void);
 const BspChassisWheelSpeedTarget *BspChassis_GetLastWheelSpeedTarget(void);
 float BspChassis_GetLastAngleErrorDeg(void);

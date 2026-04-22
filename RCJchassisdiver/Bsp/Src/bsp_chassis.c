@@ -391,7 +391,6 @@ HAL_StatusTypeDef BspChassis_SetPolarSpeed(float move_direction_deg,
     float rad = BspChassis_WrapAngle360(move_direction_deg) * chassis_pi / 180.0f;
     float forward_rpm = cosf(rad) * move_rpm;
     float left_rpm = sinf(rad) * move_rpm;
-    BspChassisWheelSpeedTarget target;
 
     if (AbsFloat(move_rpm) >= BSP_CHASSIS_MOVE_BIAS_MIN_RPM)
     {
@@ -399,12 +398,7 @@ HAL_StatusTypeDef BspChassis_SetPolarSpeed(float move_direction_deg,
         left_rpm += BSP_CHASSIS_MOVE_LEFT_BIAS_RPM;
     }
 
-    target.motor1_rpm = forward_rpm - left_rpm - ccw_rpm;
-    target.motor2_rpm = forward_rpm + left_rpm - ccw_rpm;
-    target.motor3_rpm = -forward_rpm + left_rpm - ccw_rpm;
-    target.motor4_rpm = -forward_rpm - left_rpm - ccw_rpm;
-
-    return BspChassis_SetWheelSpeeds(&target, max_current);
+    return BspChassis_SetBodySpeed(forward_rpm, left_rpm, ccw_rpm, max_current);
 }
 
 HAL_StatusTypeDef BspChassis_SetBodySpeed(float forward_rpm,
@@ -413,11 +407,13 @@ HAL_StatusTypeDef BspChassis_SetBodySpeed(float forward_rpm,
                                           int16_t max_current)
 {
     BspChassisWheelSpeedTarget target;
+    float corrected_forward_rpm = forward_rpm + (left_rpm * BSP_CHASSIS_LEFT_TO_FORWARD_COMP);
+    float corrected_left_rpm = left_rpm + (forward_rpm * BSP_CHASSIS_FORWARD_TO_LEFT_COMP);
 
-    target.motor1_rpm = forward_rpm - left_rpm - ccw_rpm;
-    target.motor2_rpm = forward_rpm + left_rpm - ccw_rpm;
-    target.motor3_rpm = -forward_rpm + left_rpm - ccw_rpm;
-    target.motor4_rpm = -forward_rpm - left_rpm - ccw_rpm;
+    target.motor1_rpm = corrected_forward_rpm - corrected_left_rpm - ccw_rpm;
+    target.motor2_rpm = corrected_forward_rpm + corrected_left_rpm - ccw_rpm;
+    target.motor3_rpm = -corrected_forward_rpm + corrected_left_rpm - ccw_rpm;
+    target.motor4_rpm = -corrected_forward_rpm - corrected_left_rpm - ccw_rpm;
 
     return BspChassis_SetWheelSpeeds(&target, max_current);
 }
@@ -442,7 +438,24 @@ HAL_StatusTypeDef BspChassis_SetBodySpeedAngleHold(float forward_rpm,
                                                    float current_yaw_deg,
                                                    int16_t max_current)
 {
-    float ccw_rpm = BspChassis_CalcAngleSpeed(target_yaw_deg, current_yaw_deg);
+    float ccw_rpm = BspChassis_CalcAngleSpeedGyro(target_yaw_deg, current_yaw_deg, 0.0f);
+
+    return BspChassis_SetBodySpeed(forward_rpm,
+                                   left_rpm,
+                                   ccw_rpm,
+                                   max_current);
+}
+
+HAL_StatusTypeDef BspChassis_SetBodySpeedAngleHoldGyro(float forward_rpm,
+                                                       float left_rpm,
+                                                       float target_yaw_deg,
+                                                       float current_yaw_deg,
+                                                       float gyro_z_deg_s,
+                                                       int16_t max_current)
+{
+    float ccw_rpm = BspChassis_CalcAngleSpeedGyro(target_yaw_deg,
+                                                  current_yaw_deg,
+                                                  gyro_z_deg_s);
 
     return BspChassis_SetBodySpeed(forward_rpm,
                                    left_rpm,
@@ -541,8 +554,16 @@ int16_t BspChassis_CalcAngleCurrent(float target_yaw_deg, float current_yaw_deg)
 
 float BspChassis_CalcAngleSpeed(float target_yaw_deg, float current_yaw_deg)
 {
+    return BspChassis_CalcAngleSpeedGyro(target_yaw_deg, current_yaw_deg, 0.0f);
+}
+
+float BspChassis_CalcAngleSpeedGyro(float target_yaw_deg,
+                                    float current_yaw_deg,
+                                    float gyro_z_deg_s)
+{
     uint32_t now = HAL_GetTick();
     float error = BspChassis_GetAngleErrorDeg(target_yaw_deg, current_yaw_deg);
+    float gyro_feedback = gyro_z_deg_s * (float)BSP_CHASSIS_GYRO_Z_DIR;
     float output;
 
     chassis_last_angle_error_deg = error;
@@ -554,8 +575,12 @@ float BspChassis_CalcAngleSpeed(float target_yaw_deg, float current_yaw_deg)
         angle_pid.last_error = error;
         angle_pid.last_tick = now;
         angle_pid.initialized = 1U;
-        chassis_last_angle_speed_rpm = 0.0f;
-        return 0.0f;
+        if ((gyro_feedback < BSP_CHASSIS_ANGLE_GYRO_DEADBAND_DPS) &&
+            (gyro_feedback > -BSP_CHASSIS_ANGLE_GYRO_DEADBAND_DPS))
+        {
+            chassis_last_angle_speed_rpm = 0.0f;
+            return 0.0f;
+        }
     }
 
     output = CalcPidOutput(&angle_pid,
@@ -565,6 +590,7 @@ float BspChassis_CalcAngleSpeed(float target_yaw_deg, float current_yaw_deg)
                            BSP_CHASSIS_ANGLE_KD,
                            0.0f,
                            now);
+    output -= gyro_feedback * BSP_CHASSIS_ANGLE_GYRO_KD;
     output *= (float)BSP_CHASSIS_YAW_CTRL_DIR;
     if (output > 0.0f)
     {

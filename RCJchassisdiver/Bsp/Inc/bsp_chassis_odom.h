@@ -36,6 +36,14 @@ extern "C" {
 #define BSP_CHASSIS_ODOM_MAX_CURRENT            4000
 #endif
 
+#ifndef BSP_CHASSIS_ODOM_FORWARD_SCALE
+#define BSP_CHASSIS_ODOM_FORWARD_SCALE          1.28f
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_LEFT_SCALE
+#define BSP_CHASSIS_ODOM_LEFT_SCALE             1.36f
+#endif
+
 typedef struct
 {
     float x_mm;
@@ -64,6 +72,12 @@ HAL_StatusTypeDef BspChassisOdom_DriveTo(float target_x_mm,
                                          float target_yaw_deg,
                                          float max_speed_mm_s,
                                          int16_t max_current);
+HAL_StatusTypeDef BspChassisOdom_DriveToGyro(float target_x_mm,
+                                             float target_y_mm,
+                                             float target_yaw_deg,
+                                             float gyro_z_deg_s,
+                                             float max_speed_mm_s,
+                                             int16_t max_current);
 uint8_t BspChassisOdom_IsAt(float target_x_mm, float target_y_mm, float tolerance_mm);
 float BspChassisOdom_MmSToMotorRpm(float speed_mm_s);
 float BspChassisOdom_MotorRpmToMmS(float motor_rpm);

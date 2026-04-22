@@ -103,6 +103,8 @@ void BspChassisOdom_Update(float yaw_deg)
 
     body_forward_mm_s = BspChassisOdom_MotorRpmToMmS(body_forward_rpm);
     body_left_mm_s = BspChassisOdom_MotorRpmToMmS(body_left_rpm);
+    body_forward_mm_s *= BSP_CHASSIS_ODOM_FORWARD_SCALE;
+    body_left_mm_s *= BSP_CHASSIS_ODOM_LEFT_SCALE;
 
     odom_pose.yaw_deg = BspChassis_WrapAngle360(yaw_deg);
     yaw_rad = odom_pose.yaw_deg * odom_pi / 180.0f;
@@ -123,6 +125,21 @@ HAL_StatusTypeDef BspChassisOdom_DriveTo(float target_x_mm,
                                          float max_speed_mm_s,
                                          int16_t max_current)
 {
+    return BspChassisOdom_DriveToGyro(target_x_mm,
+                                      target_y_mm,
+                                      target_yaw_deg,
+                                      0.0f,
+                                      max_speed_mm_s,
+                                      max_current);
+}
+
+HAL_StatusTypeDef BspChassisOdom_DriveToGyro(float target_x_mm,
+                                             float target_y_mm,
+                                             float target_yaw_deg,
+                                             float gyro_z_deg_s,
+                                             float max_speed_mm_s,
+                                             int16_t max_current)
+{
     float dx = target_x_mm - odom_pose.x_mm;
     float dy = target_y_mm - odom_pose.y_mm;
     float distance = sqrtf((dx * dx) + (dy * dy));
@@ -139,11 +156,12 @@ HAL_StatusTypeDef BspChassisOdom_DriveTo(float target_x_mm,
 
     if (distance <= BSP_CHASSIS_ODOM_POS_TOLERANCE_MM)
     {
-        return BspChassis_SetBodySpeedAngleHold(0.0f,
-                                                0.0f,
-                                                target_yaw_deg,
-                                                odom_pose.yaw_deg,
-                                                max_current);
+        return BspChassis_SetBodySpeedAngleHoldGyro(0.0f,
+                                                    0.0f,
+                                                    target_yaw_deg,
+                                                    odom_pose.yaw_deg,
+                                                    gyro_z_deg_s,
+                                                    max_current);
     }
 
     if (max_speed_mm_s <= 0.0f)
@@ -173,11 +191,12 @@ HAL_StatusTypeDef BspChassisOdom_DriveTo(float target_x_mm,
     forward_rpm = BspChassisOdom_MmSToMotorRpm(forward_mm_s);
     left_rpm = BspChassisOdom_MmSToMotorRpm(left_mm_s);
 
-    return BspChassis_SetBodySpeedAngleHold(forward_rpm,
-                                            left_rpm,
-                                            target_yaw_deg,
-                                            odom_pose.yaw_deg,
-                                            max_current);
+    return BspChassis_SetBodySpeedAngleHoldGyro(forward_rpm,
+                                                left_rpm,
+                                                target_yaw_deg,
+                                                odom_pose.yaw_deg,
+                                                gyro_z_deg_s,
+                                                max_current);
 }
 
 uint8_t BspChassisOdom_IsAt(float target_x_mm, float target_y_mm, float tolerance_mm)

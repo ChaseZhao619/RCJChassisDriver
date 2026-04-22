@@ -28,7 +28,7 @@
 #include "bsp_usart.h"
 #include "bsp_bno085.h"
 #include "bsp_motor.h"
-#include "bsp_chassis_angle_test.h"
+#include "bsp_chassis_odom_test.h"
 
 /* USER CODE END Includes */
 
@@ -63,9 +63,11 @@ Bno085SensorData bno085_sensor_data;
 Bno085I2cProbeResult bno085_probe_result;
 uint8_t bno085_last_header[4];
 float bno085_yaw_deg;
+float bno085_gyro_z_deg_s;
 uint8_t bno085_zero_key_last;
 uint32_t bno085_last_print_tick;
 uint32_t bno085_yaw_update_tick;
+uint32_t bno085_gyro_update_tick;
 
 /* USER CODE END PV */
 
@@ -118,7 +120,7 @@ int main(void)
   {
     Error_Handler();
   }
-  BspChassisAngleTest_Init();
+  BspChassisOdomTest_Init();
 
   Printf(BSP_USART_6, "BNO085 test start\r\n");
   if (Bno085_Init() == HAL_OK)
@@ -175,6 +177,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     uint8_t chassis_yaw_valid = 0U;
+    uint8_t chassis_gyro_valid = 0U;
     uint32_t now = HAL_GetTick();
 
     if (Bno085_ReadSensorData(&bno085_sensor_data) == HAL_OK)
@@ -206,12 +209,25 @@ int main(void)
         }
 #endif
       }
+
+      if (bno085_sensor_data.has_gyro != 0U)
+      {
+        bno085_gyro_z_deg_s = bno085_sensor_data.gyro.z * 57.2957795f;
+        bno085_gyro_update_tick = now;
+      }
     }
     if ((now - bno085_yaw_update_tick) <= MAIN_CHASSIS_YAW_TIMEOUT_MS)
     {
       chassis_yaw_valid = 1U;
     }
-    BspChassisAngleTest_Task(chassis_yaw_valid, bno085_yaw_deg);
+    if ((now - bno085_gyro_update_tick) <= MAIN_CHASSIS_YAW_TIMEOUT_MS)
+    {
+      chassis_gyro_valid = 1U;
+    }
+    BspChassisOdomTest_Task(chassis_yaw_valid,
+                            bno085_yaw_deg,
+                            chassis_gyro_valid,
+                            bno085_gyro_z_deg_s);
     HAL_Delay(5);
   }
   /* USER CODE END 3 */

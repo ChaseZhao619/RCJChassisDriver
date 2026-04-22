@@ -738,6 +738,8 @@ HAL_StatusTypeDef Bno085_ReadSensorData(Bno085SensorData *sensor_data)
         return HAL_ERROR;
     }
 
+    memset(sensor_data, 0, sizeof(*sensor_data));
+
     if (bno085_read_packet(&packet) != HAL_OK)
     {
         return HAL_ERROR;

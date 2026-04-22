@@ -20,8 +20,63 @@ extern "C" {
 #define BSP_CHASSIS_ODOM_TEST_YAW_TOLERANCE_DEG 3.0f
 #endif
 
+#ifndef BSP_CHASSIS_ODOM_TEST_STOP_RPM
+#define BSP_CHASSIS_ODOM_TEST_STOP_RPM 35
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_TEST_STOP_STABLE_MS
+#define BSP_CHASSIS_ODOM_TEST_STOP_STABLE_MS 250U
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_TEST_STOP_MAX_WAIT_MS
+#define BSP_CHASSIS_ODOM_TEST_STOP_MAX_WAIT_MS 1500U
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_TEST_PROFILE_MIN_SCALE
+#define BSP_CHASSIS_ODOM_TEST_PROFILE_MIN_SCALE 0.08f
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_TEST_SEGMENT_DONE_PROGRESS
+#define BSP_CHASSIS_ODOM_TEST_SEGMENT_DONE_PROGRESS 0.990f
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_TEST_FIELD_LENGTH_MM
+#define BSP_CHASSIS_ODOM_TEST_FIELD_LENGTH_MM 2150.0f
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_TEST_FIELD_WIDTH_MM
+#define BSP_CHASSIS_ODOM_TEST_FIELD_WIDTH_MM 1540.0f
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_TEST_LINE_MARGIN_MM
+#define BSP_CHASSIS_ODOM_TEST_LINE_MARGIN_MM 20.0f
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_TEST_BORDER_SPEED_MM_S
+#define BSP_CHASSIS_ODOM_TEST_BORDER_SPEED_MM_S 350.0f
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_TEST_LINE_CROSS_KP
+#define BSP_CHASSIS_ODOM_TEST_LINE_CROSS_KP 2.2f
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_TEST_LINE_CROSS_MAX_MM_S
+#define BSP_CHASSIS_ODOM_TEST_LINE_CROSS_MAX_MM_S 180.0f
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_TEST_LINE_CROSS_DEADBAND_MM
+#define BSP_CHASSIS_ODOM_TEST_LINE_CROSS_DEADBAND_MM 8.0f
+#endif
+
+#ifndef BSP_CHASSIS_ODOM_TEST_MIN_SPEED_DISTANCE_MM
+#define BSP_CHASSIS_ODOM_TEST_MIN_SPEED_DISTANCE_MM 220.0f
+#endif
+
 void BspChassisOdomTest_Init(void);
-void BspChassisOdomTest_Task(uint8_t yaw_valid, float yaw_deg);
+void BspChassisOdomTest_Task(uint8_t yaw_valid,
+                             float yaw_deg,
+                             uint8_t gyro_valid,
+                             float gyro_z_deg_s);
 
 #ifdef __cplusplus
 }

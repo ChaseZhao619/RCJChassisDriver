@@ -53,6 +53,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Bsp/Src/bsp_chassis_angle_test.c
     Bsp/Src/bsp_chassis_odom.c
     Bsp/Src/bsp_chassis_odom_test.c
+    Bsp/Src/bsp_chassis_odom_calib_test.c
 )
 
 # Add include paths
