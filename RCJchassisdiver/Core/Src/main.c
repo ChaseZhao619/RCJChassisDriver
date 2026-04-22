@@ -27,6 +27,8 @@
 /* USER CODE BEGIN Includes */
 #include "bsp_usart.h"
 #include "bsp_bno085.h"
+#include "bsp_motor.h"
+#include "bsp_motor_test.h"
 
 /* USER CODE END Includes */
 
@@ -104,6 +106,12 @@ int main(void)
   MX_USART6_UART_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  if (BspMotor_Init() != HAL_OK)
+  {
+    Error_Handler();
+  }
+  BspMotorTest_Init();
+
   Printf(BSP_USART_6, "BNO085 test start\r\n");
   if (Bno085_Init() == HAL_OK)
   {
@@ -158,6 +166,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    BspMotorTest_Task();
+
     if (Bno085_ReadSensorData(&bno085_sensor_data) == HAL_OK)
     {
       uint8_t zero_key_pressed = Bno085_IsZeroKeyPressed();
