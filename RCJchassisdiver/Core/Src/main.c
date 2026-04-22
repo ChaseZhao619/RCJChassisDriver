@@ -18,14 +18,15 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "bsp_usart.h"
 #include "can.h"
-#include "stm32f4xx_hal.h"
+#include "i2c.h"
 #include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "bsp_usart.h"
+#include "bsp_bno085.h"
 
 /* USER CODE END Includes */
 
@@ -47,6 +48,14 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+Bno085ProductId bno085_product_id;
+Bno085RotationVector bno085_rotation_vector;
+Bno085SensorData bno085_sensor_data;
+Bno085I2cProbeResult bno085_probe_result;
+uint8_t bno085_last_header[4];
+float bno085_yaw_deg;
+uint8_t bno085_zero_key_last;
+uint32_t bno085_last_print_tick;
 
 /* USER CODE END PV */
 
@@ -93,7 +102,52 @@ int main(void)
   MX_CAN1_Init();
   MX_USART1_UART_Init();
   MX_USART6_UART_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  Printf(BSP_USART_6, "BNO085 test start\r\n");
+  if (Bno085_Init() == HAL_OK)
+  {
+    if (Bno085_GetProductId(&bno085_product_id) == HAL_OK)
+    {
+      Printf(BSP_USART_6, "BNO085 addr=0x%02X sw=%u.%u.%u build=%lu part=%lu\r\n",
+             bno085_product_id.i2c_addr,
+             bno085_product_id.sw_major,
+             bno085_product_id.sw_minor,
+             bno085_product_id.sw_patch,
+             bno085_product_id.sw_build_number,
+             bno085_product_id.sw_part_number);
+    }
+
+    if (Bno085_EnableDefaultReports(10000U) == HAL_OK)
+    {
+      Printf(BSP_USART_6, "BNO085 default reports enabled\r\n");
+    }
+    else
+    {
+      Printf(BSP_USART_6, "BNO085 enable default reports failed\r\n");
+    }
+  }
+  else
+  {
+    Bno085_GetI2cProbeResult(&bno085_probe_result);
+    Printf(BSP_USART_6, "BNO085 init failed addr=0x%02X int=%u err=%u i2cerr=0x%08lX\r\n",
+           Bno085_GetI2cAddress(),
+           Bno085_GetIntPinLevel(),
+           Bno085_GetLastError(),
+           Bno085_GetLastHalI2cError());
+    Printf(BSP_USART_6, "BNO085 probe 0x4B ready=%u err=0x%08lX, 0x4A ready=%u err=0x%08lX\r\n",
+           bno085_probe_result.ready_4b,
+           bno085_probe_result.error_4b,
+           bno085_probe_result.ready_4a,
+           bno085_probe_result.error_4a);
+    Bno085_GetLastHeader(bno085_last_header);
+    Printf(BSP_USART_6, "BNO085 last header=%02X %02X %02X %02X len=%u\r\n",
+           bno085_last_header[0],
+           bno085_last_header[1],
+           bno085_last_header[2],
+           bno085_last_header[3],
+           Bno085_GetLastPacketLength());
+  }
 
   /* USER CODE END 2 */
 
@@ -104,8 +158,32 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    Printf(BSP_USART_6, "hello %s\r\n","uart6");
-    HAL_Delay(1000);
+    if (Bno085_ReadSensorData(&bno085_sensor_data) == HAL_OK)
+    {
+      uint8_t zero_key_pressed = Bno085_IsZeroKeyPressed();
+
+      if ((zero_key_pressed != 0U) && (bno085_zero_key_last == 0U))
+      {
+        if (Bno085_SetYawZero(&bno085_sensor_data.rotation) == HAL_OK)
+        {
+          Printf(BSP_USART_6, "imu_zero:1\n");
+        }
+      }
+      bno085_zero_key_last = zero_key_pressed;
+
+      if ((bno085_sensor_data.has_rotation != 0U) &&
+          (Bno085_GetYawDegrees(&bno085_sensor_data.rotation, &bno085_yaw_deg) == HAL_OK) &&
+          ((HAL_GetTick() - bno085_last_print_tick) >= 50U))
+      {
+        bno085_last_print_tick = HAL_GetTick();
+        Printf(BSP_USART_6,
+               "imu:%.2f,%u,%ld\n",
+               bno085_yaw_deg,
+               bno085_sensor_data.rotation.status,
+               (long)bno085_sensor_data.gyro.z_raw);
+      }
+    }
+    HAL_Delay(5);
   }
   /* USER CODE END 3 */
 }
