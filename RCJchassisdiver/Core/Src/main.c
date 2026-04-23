@@ -29,6 +29,7 @@
 #include "bsp_bno085.h"
 #include "bsp_motor.h"
 #include "app_chassis_task.h"
+#include "app_pi_comm.h"
 
 /* USER CODE END Includes */
 
@@ -45,6 +46,14 @@
 
 #ifndef MAIN_CHASSIS_YAW_TIMEOUT_MS
 #define MAIN_CHASSIS_YAW_TIMEOUT_MS 300U
+#endif
+
+#ifndef MAIN_ZERO_KEY_DEBOUNCE_MS
+#define MAIN_ZERO_KEY_DEBOUNCE_MS 30U
+#endif
+
+#ifndef MAIN_DEBUG_USART
+#define MAIN_DEBUG_USART BSP_USART_1
 #endif
 
 /* USER CODE END PD */
@@ -64,10 +73,14 @@ Bno085I2cProbeResult bno085_probe_result;
 uint8_t bno085_last_header[4];
 float bno085_yaw_deg;
 float bno085_gyro_z_deg_s;
-uint8_t bno085_zero_key_last;
+uint8_t bno085_zero_key_sample;
+uint8_t bno085_zero_key_stable;
+uint8_t bno085_zero_key_handled;
+uint8_t bno085_rotation_valid;
 uint32_t bno085_last_print_tick;
 uint32_t bno085_yaw_update_tick;
 uint32_t bno085_gyro_update_tick;
+uint32_t bno085_zero_key_debounce_tick;
 
 /* USER CODE END PV */
 
@@ -121,13 +134,14 @@ int main(void)
     Error_Handler();
   }
   AppChassisTask_Init();
+  AppPiComm_Init();
 
-  Printf(BSP_USART_6, "BNO085 test start\r\n");
+  Printf(MAIN_DEBUG_USART, "BNO085 test start\r\n");
   if (Bno085_Init() == HAL_OK)
   {
     if (Bno085_GetProductId(&bno085_product_id) == HAL_OK)
     {
-      Printf(BSP_USART_6, "BNO085 addr=0x%02X sw=%u.%u.%u build=%lu part=%lu\r\n",
+      Printf(MAIN_DEBUG_USART, "BNO085 addr=0x%02X sw=%u.%u.%u build=%lu part=%lu\r\n",
              bno085_product_id.i2c_addr,
              bno085_product_id.sw_major,
              bno085_product_id.sw_minor,
@@ -138,28 +152,28 @@ int main(void)
 
     if (Bno085_EnableDefaultReports(10000U) == HAL_OK)
     {
-      Printf(BSP_USART_6, "BNO085 default reports enabled\r\n");
+      Printf(MAIN_DEBUG_USART, "BNO085 default reports enabled\r\n");
     }
     else
     {
-      Printf(BSP_USART_6, "BNO085 enable default reports failed\r\n");
+      Printf(MAIN_DEBUG_USART, "BNO085 enable default reports failed\r\n");
     }
   }
   else
   {
     Bno085_GetI2cProbeResult(&bno085_probe_result);
-    Printf(BSP_USART_6, "BNO085 init failed addr=0x%02X int=%u err=%u i2cerr=0x%08lX\r\n",
+    Printf(MAIN_DEBUG_USART, "BNO085 init failed addr=0x%02X int=%u err=%u i2cerr=0x%08lX\r\n",
            Bno085_GetI2cAddress(),
            Bno085_GetIntPinLevel(),
            Bno085_GetLastError(),
            Bno085_GetLastHalI2cError());
-    Printf(BSP_USART_6, "BNO085 probe 0x4B ready=%u err=0x%08lX, 0x4A ready=%u err=0x%08lX\r\n",
+    Printf(MAIN_DEBUG_USART, "BNO085 probe 0x4B ready=%u err=0x%08lX, 0x4A ready=%u err=0x%08lX\r\n",
            bno085_probe_result.ready_4b,
            bno085_probe_result.error_4b,
            bno085_probe_result.ready_4a,
            bno085_probe_result.error_4a);
     Bno085_GetLastHeader(bno085_last_header);
-    Printf(BSP_USART_6, "BNO085 last header=%02X %02X %02X %02X len=%u\r\n",
+    Printf(MAIN_DEBUG_USART, "BNO085 last header=%02X %02X %02X %02X len=%u\r\n",
            bno085_last_header[0],
            bno085_last_header[1],
            bno085_last_header[2],
@@ -182,26 +196,17 @@ int main(void)
 
     if (Bno085_ReadSensorData(&bno085_sensor_data) == HAL_OK)
     {
-      uint8_t zero_key_pressed = Bno085_IsZeroKeyPressed();
-
-      if ((zero_key_pressed != 0U) && (bno085_zero_key_last == 0U))
-      {
-        if (Bno085_SetYawZero(&bno085_sensor_data.rotation) == HAL_OK)
-        {
-          Printf(BSP_USART_6, "imu_zero:1\n");
-        }
-      }
-      bno085_zero_key_last = zero_key_pressed;
-
       if ((bno085_sensor_data.has_rotation != 0U) &&
           (Bno085_GetYawDegrees(&bno085_sensor_data.rotation, &bno085_yaw_deg) == HAL_OK))
       {
+        bno085_rotation_vector = bno085_sensor_data.rotation;
+        bno085_rotation_valid = 1U;
         bno085_yaw_update_tick = now;
 #if MAIN_IMU_PRINT_ENABLE
         if ((now - bno085_last_print_tick) >= 50U)
         {
           bno085_last_print_tick = now;
-          Printf(BSP_USART_6,
+          Printf(MAIN_DEBUG_USART,
                  "imu:%.2f,%u,%ld\n",
                  bno085_yaw_deg,
                  bno085_sensor_data.rotation.status,
@@ -216,6 +221,43 @@ int main(void)
         bno085_gyro_update_tick = now;
       }
     }
+    {
+      uint8_t zero_key_pressed = Bno085_IsZeroKeyPressed();
+
+      if (zero_key_pressed != bno085_zero_key_sample)
+      {
+        bno085_zero_key_sample = zero_key_pressed;
+        bno085_zero_key_debounce_tick = now;
+      }
+
+      if ((now - bno085_zero_key_debounce_tick) >= MAIN_ZERO_KEY_DEBOUNCE_MS)
+      {
+        if (bno085_zero_key_stable != bno085_zero_key_sample)
+        {
+          bno085_zero_key_stable = bno085_zero_key_sample;
+          if (bno085_zero_key_stable == 0U)
+          {
+            bno085_zero_key_handled = 0U;
+          }
+        }
+
+        if ((bno085_zero_key_stable != 0U) &&
+            (bno085_zero_key_handled == 0U) &&
+            (bno085_rotation_valid != 0U))
+        {
+          if (Bno085_SetYawZero(&bno085_rotation_vector) == HAL_OK)
+          {
+            if (Bno085_GetYawDegrees(&bno085_rotation_vector, &bno085_yaw_deg) == HAL_OK)
+            {
+              bno085_yaw_update_tick = now;
+              AppChassisTask_OnYawZero(bno085_yaw_deg);
+            }
+            bno085_zero_key_handled = 1U;
+            Printf(MAIN_DEBUG_USART, "imu_zero:1\n");
+          }
+        }
+      }
+    }
     if ((now - bno085_yaw_update_tick) <= MAIN_CHASSIS_YAW_TIMEOUT_MS)
     {
       chassis_yaw_valid = 1U;
@@ -228,6 +270,7 @@ int main(void)
                         bno085_yaw_deg,
                         chassis_gyro_valid,
                         bno085_gyro_z_deg_s);
+    AppPiComm_Task();
     HAL_Delay(5);
   }
   /* USER CODE END 3 */

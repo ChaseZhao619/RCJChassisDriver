@@ -1,0 +1,355 @@
+#include "app_pi_comm.h"
+
+#include "app_chassis_task.h"
+#include "bsp_usart.h"
+#include "usart.h"
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define APP_PI_COMM_UART_ID BSP_USART_6
+#define APP_PI_COMM_RX_RING_SIZE 256U
+#define APP_PI_COMM_LINE_SIZE 96U
+
+static uint8_t app_pi_rx_byte;
+static volatile uint8_t app_pi_rx_ring[APP_PI_COMM_RX_RING_SIZE];
+static volatile uint16_t app_pi_rx_head;
+static volatile uint16_t app_pi_rx_tail;
+static char app_pi_line[APP_PI_COMM_LINE_SIZE];
+static uint16_t app_pi_line_len;
+
+static void StartReceive(void)
+{
+    (void)HAL_UART_Receive_IT(&huart6, &app_pi_rx_byte, 1U);
+}
+
+uint16_t AppPiComm_Crc16Ccitt(const uint8_t *data, uint16_t size)
+{
+    uint16_t crc = 0xFFFFU;
+    uint16_t i;
+    uint8_t bit;
+
+    if (data == NULL)
+    {
+        return crc;
+    }
+
+    for (i = 0U; i < size; i++)
+    {
+        crc ^= (uint16_t)data[i] << 8;
+        for (bit = 0U; bit < 8U; bit++)
+        {
+            if ((crc & 0x8000U) != 0U)
+            {
+                crc = (uint16_t)((crc << 1) ^ 0x1021U);
+            }
+            else
+            {
+                crc <<= 1;
+            }
+        }
+    }
+
+    return crc;
+}
+
+static char *SkipSpaces(char *text)
+{
+    while ((*text != '\0') && (isspace((unsigned char)*text) != 0))
+    {
+        text++;
+    }
+
+    return text;
+}
+
+static char *TrimRight(char *text)
+{
+    size_t length = strlen(text);
+
+    while ((length > 0U) && (isspace((unsigned char)text[length - 1U]) != 0))
+    {
+        length--;
+        text[length] = '\0';
+    }
+
+    return text;
+}
+
+static uint8_t ReadFloat(char **cursor, float *value)
+{
+    char *endptr;
+
+    if ((cursor == NULL) || (*cursor == NULL) || (value == NULL))
+    {
+        return 0U;
+    }
+
+    *cursor = SkipSpaces(*cursor);
+    *value = strtof(*cursor, &endptr);
+    if (endptr == *cursor)
+    {
+        return 0U;
+    }
+
+    *cursor = endptr;
+    return 1U;
+}
+
+static void SendPayloadWithCrc(const char *payload)
+{
+    char tx[APP_PI_COMM_LINE_SIZE];
+    uint16_t crc;
+    int length;
+
+    if (payload == NULL)
+    {
+        return;
+    }
+
+    crc = AppPiComm_Crc16Ccitt((const uint8_t *)payload, (uint16_t)strlen(payload));
+    length = snprintf(tx, sizeof(tx), "%s *%04X\r\n", payload, crc);
+    if (length <= 0)
+    {
+        return;
+    }
+    if ((uint32_t)length > sizeof(tx))
+    {
+        length = (int)sizeof(tx);
+    }
+
+    (void)BspUsart_Transmit(APP_PI_COMM_UART_ID, (const uint8_t *)tx, (uint16_t)length, 10U);
+}
+
+static void SendCommandError(char *line)
+{
+    char *command;
+    char *end;
+    char payload[APP_PI_COMM_LINE_SIZE];
+
+    if (line == NULL)
+    {
+        SendPayloadWithCrc("cmd error");
+        return;
+    }
+
+    TrimRight(line);
+    command = SkipSpaces(line);
+    end = command;
+    while ((*end != '\0') &&
+           (isspace((unsigned char)*end) == 0) &&
+           (*end != '*'))
+    {
+        end++;
+    }
+
+    if (end == command)
+    {
+        SendPayloadWithCrc("cmd eror");
+        return;
+    }
+
+    *end = '\0';
+    (void)snprintf(payload, sizeof(payload), "%s eror", command);
+    SendPayloadWithCrc(payload);
+}
+
+static uint8_t ValidateAndSplitCrc(char *line, char **payload)
+{
+    char *star;
+    char *crc_text;
+    char *endptr;
+    uint32_t received_crc;
+    uint16_t calc_crc;
+
+    if ((line == NULL) || (payload == NULL))
+    {
+        return 0U;
+    }
+
+    TrimRight(line);
+    star = strrchr(line, '*');
+    if (star == NULL)
+    {
+        return 0U;
+    }
+
+    *star = '\0';
+    TrimRight(line);
+    crc_text = SkipSpaces(star + 1);
+    if (strlen(crc_text) != 4U)
+    {
+        return 0U;
+    }
+
+    received_crc = strtoul(crc_text, &endptr, 16);
+    if ((*endptr != '\0') || (received_crc > 0xFFFFUL))
+    {
+        return 0U;
+    }
+
+    calc_crc = AppPiComm_Crc16Ccitt((const uint8_t *)line, (uint16_t)strlen(line));
+    if (calc_crc != (uint16_t)received_crc)
+    {
+        return 0U;
+    }
+
+    *payload = SkipSpaces(line);
+    return 1U;
+}
+
+static uint8_t EnsureLineEnded(char *cursor)
+{
+    cursor = SkipSpaces(cursor);
+    return (*cursor == '\0') ? 1U : 0U;
+}
+
+static void HandlePayload(char *payload)
+{
+    char *cursor;
+    float x_cm;
+    float y_cm;
+    float yaw_deg;
+    HAL_StatusTypeDef status;
+
+    if (strncmp(payload, "cmd_dis", 7U) == 0)
+    {
+        cursor = payload + 7U;
+        if ((ReadFloat(&cursor, &x_cm) == 0U) ||
+            (ReadFloat(&cursor, &y_cm) == 0U) ||
+            (EnsureLineEnded(cursor) == 0U))
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = AppChassisTask_CommandDistanceCm(x_cm, y_cm);
+        SendPayloadWithCrc((status == HAL_OK) ? "cmd_dis ok" : "cmd_dis busy");
+        return;
+    }
+
+    if (strncmp(payload, "cmd_turn", 8U) == 0)
+    {
+        cursor = payload + 8U;
+        if ((ReadFloat(&cursor, &yaw_deg) == 0U) ||
+            (EnsureLineEnded(cursor) == 0U))
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = AppChassisTask_CommandTurnDeg(yaw_deg);
+        SendPayloadWithCrc((status == HAL_OK) ? "cmd_turn ok" : "cmd_turn busy");
+        return;
+    }
+
+    SendPayloadWithCrc("err cmd");
+}
+
+static void ProcessLine(char *line)
+{
+    char *payload = NULL;
+
+    if (ValidateAndSplitCrc(line, &payload) == 0U)
+    {
+        SendCommandError(line);
+        return;
+    }
+
+    HandlePayload(payload);
+}
+
+static uint8_t PopByte(uint8_t *byte)
+{
+    if ((byte == NULL) || (app_pi_rx_head == app_pi_rx_tail))
+    {
+        return 0U;
+    }
+
+    *byte = app_pi_rx_ring[app_pi_rx_tail];
+    app_pi_rx_tail = (uint16_t)((app_pi_rx_tail + 1U) % APP_PI_COMM_RX_RING_SIZE);
+    return 1U;
+}
+
+void AppPiComm_Init(void)
+{
+    app_pi_rx_head = 0U;
+    app_pi_rx_tail = 0U;
+    app_pi_line_len = 0U;
+    StartReceive();
+}
+
+void AppPiComm_Task(void)
+{
+    uint8_t byte;
+
+    while (PopByte(&byte) != 0U)
+    {
+        if (byte == '\r')
+        {
+            continue;
+        }
+
+        if (byte == '\n')
+        {
+            app_pi_line[app_pi_line_len] = '\0';
+            if (app_pi_line_len > 0U)
+            {
+                ProcessLine(app_pi_line);
+            }
+            app_pi_line_len = 0U;
+            continue;
+        }
+
+        if (app_pi_line_len < (APP_PI_COMM_LINE_SIZE - 1U))
+        {
+            app_pi_line[app_pi_line_len] = (char)byte;
+            app_pi_line_len++;
+        }
+        else
+        {
+            app_pi_line_len = 0U;
+            SendPayloadWithCrc("err long");
+        }
+    }
+}
+
+void AppPiComm_OnUartRxCplt(UART_HandleTypeDef *huart)
+{
+    uint16_t next_head;
+
+    if ((huart == NULL) || (huart->Instance != USART6))
+    {
+        return;
+    }
+
+    next_head = (uint16_t)((app_pi_rx_head + 1U) % APP_PI_COMM_RX_RING_SIZE);
+    if (next_head != app_pi_rx_tail)
+    {
+        app_pi_rx_ring[app_pi_rx_head] = app_pi_rx_byte;
+        app_pi_rx_head = next_head;
+    }
+
+    StartReceive();
+}
+
+void AppPiComm_OnUartError(UART_HandleTypeDef *huart)
+{
+    if ((huart == NULL) || (huart->Instance != USART6))
+    {
+        return;
+    }
+
+    StartReceive();
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    AppPiComm_OnUartRxCplt(huart);
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    AppPiComm_OnUartError(huart);
+}

@@ -45,6 +45,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/Src/app_chassis_task.c
+    App/Src/app_pi_comm.c
     Bsp/Src/bsp_usart.c
     Bsp/Src/bsp_bno085.c
     Bsp/Src/bsp_motor.c

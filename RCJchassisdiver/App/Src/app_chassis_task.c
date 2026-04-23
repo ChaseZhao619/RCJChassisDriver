@@ -3,37 +3,29 @@
 #include "bsp_chassis.h"
 #include "bsp_chassis_odom.h"
 #include "bsp_motor.h"
+#include <math.h>
 
 typedef enum
 {
-    APP_CHASSIS_STEP_WAIT_IMU = 0,
-    APP_CHASSIS_STEP_START_DELAY,
-    APP_CHASSIS_STEP_MOVE_FORWARD_1,
-    APP_CHASSIS_STEP_HOLD_FORWARD_1,
-    APP_CHASSIS_STEP_MOVE_RIGHT,
-    APP_CHASSIS_STEP_HOLD_RIGHT,
-    APP_CHASSIS_STEP_MOVE_LEFT,
-    APP_CHASSIS_STEP_HOLD_LEFT,
-    APP_CHASSIS_STEP_MOVE_FORWARD_2,
-    APP_CHASSIS_STEP_HOLD_FORWARD_2,
-    APP_CHASSIS_STEP_ROTATE_CLOCKWISE,
-    APP_CHASSIS_STEP_DONE,
-} AppChassisStep;
+    APP_CHASSIS_MODE_WAIT_IMU = 0,
+    APP_CHASSIS_MODE_IDLE,
+    APP_CHASSIS_MODE_MOVE,
+    APP_CHASSIS_MODE_TURN,
+} AppChassisMode;
 
-#define APP_TARGET_FORWARD_1_X_MM (APP_CHASSIS_TASK_FORWARD_1_DISTANCE_MM)
-#define APP_TARGET_FORWARD_1_Y_MM (0.0f)
-#define APP_TARGET_RIGHT_X_MM     (APP_CHASSIS_TASK_FORWARD_1_DISTANCE_MM)
-#define APP_TARGET_RIGHT_Y_MM     (-APP_CHASSIS_TASK_RIGHT_DISTANCE_MM)
-#define APP_TARGET_LEFT_X_MM      (APP_CHASSIS_TASK_FORWARD_1_DISTANCE_MM)
-#define APP_TARGET_LEFT_Y_MM      (APP_CHASSIS_TASK_LEFT_DISTANCE_MM - APP_CHASSIS_TASK_RIGHT_DISTANCE_MM)
-#define APP_TARGET_FORWARD_2_X_MM (APP_CHASSIS_TASK_FORWARD_1_DISTANCE_MM + APP_CHASSIS_TASK_FORWARD_2_DISTANCE_MM)
-#define APP_TARGET_FORWARD_2_Y_MM (APP_CHASSIS_TASK_LEFT_DISTANCE_MM - APP_CHASSIS_TASK_RIGHT_DISTANCE_MM)
-
-static AppChassisStep app_step;
-static float app_start_yaw_deg;
-static float app_rotate_target_yaw_deg;
-static uint32_t app_step_tick;
+static AppChassisMode app_mode;
+static float app_target_x_mm;
+static float app_target_y_mm;
+static float app_target_yaw_deg;
+static float app_segment_start_x_mm;
+static float app_segment_start_y_mm;
 static uint32_t app_stop_tick;
+static uint32_t app_hold_tick;
+static uint8_t app_odom_ready;
+static uint8_t app_move_reached;
+static uint8_t app_hold_started;
+
+static const float app_pi = 3.14159265358979323846f;
 
 static int16_t Abs16(int16_t value)
 {
@@ -64,6 +56,28 @@ static uint8_t AreChassisMotorsStopped(void)
     return 1U;
 }
 
+static float AbsFloat(float value)
+{
+    return (value < 0.0f) ? -value : value;
+}
+
+static float LimitFloat(float value, float limit)
+{
+    float abs_limit = AbsFloat(limit);
+
+    if (value > abs_limit)
+    {
+        return abs_limit;
+    }
+
+    if (value < -abs_limit)
+    {
+        return -abs_limit;
+    }
+
+    return value;
+}
+
 static uint8_t IsStoppedStable(uint32_t now)
 {
     if (AreChassisMotorsStopped() != 0U)
@@ -82,23 +96,13 @@ static uint8_t IsStoppedStable(uint32_t now)
             ((now - app_stop_tick) >= APP_CHASSIS_TASK_STOP_STABLE_MS)) ? 1U : 0U;
 }
 
-static void SetStep(AppChassisStep step, uint32_t now)
+static void SetMode(AppChassisMode mode)
 {
-    app_step = step;
-    app_step_tick = now;
+    app_mode = mode;
     app_stop_tick = 0U;
+    app_hold_tick = 0U;
+    app_hold_started = 0U;
     BspChassis_ResetPid();
-}
-
-static void HoldThenNext(uint32_t now, AppChassisStep next_step)
-{
-    (void)BspChassis_Stop();
-
-    if (((now - app_step_tick) >= APP_CHASSIS_TASK_HOLD_AFTER_MOVE_MS) &&
-        (IsStoppedStable(now) != 0U))
-    {
-        SetStep(next_step, now);
-    }
 }
 
 static uint8_t IsYawAtTarget(float target_yaw_deg, float current_yaw_deg)
@@ -109,14 +113,258 @@ static uint8_t IsYawAtTarget(float target_yaw_deg, float current_yaw_deg)
             (error >= -APP_CHASSIS_TASK_ROTATE_TOLERANCE_DEG)) ? 1U : 0U;
 }
 
+static float CalcSegmentProgress(const BspChassisOdomPose *pose)
+{
+    float total_dx = app_target_x_mm - app_segment_start_x_mm;
+    float total_dy = app_target_y_mm - app_segment_start_y_mm;
+    float done_dx;
+    float done_dy;
+    float total_dist2 = (total_dx * total_dx) + (total_dy * total_dy);
+
+    if ((pose == NULL) || (total_dist2 < 1.0f))
+    {
+        return 1.0f;
+    }
+
+    done_dx = pose->x_mm - app_segment_start_x_mm;
+    done_dy = pose->y_mm - app_segment_start_y_mm;
+
+    return ((done_dx * total_dx) + (done_dy * total_dy)) / total_dist2;
+}
+
+static uint8_t IsMoveTargetReached(const BspChassisOdomPose *pose)
+{
+    if (BspChassisOdom_IsAt(app_target_x_mm,
+                            app_target_y_mm,
+                            BSP_CHASSIS_ODOM_POS_TOLERANCE_MM) != 0U)
+    {
+        return 1U;
+    }
+
+    return (CalcSegmentProgress(pose) >= APP_CHASSIS_TASK_SEGMENT_DONE_PROGRESS) ? 1U : 0U;
+}
+
+static float CalcProfileMaxSpeed(const BspChassisOdomPose *pose)
+{
+    float total_dx = app_target_x_mm - app_segment_start_x_mm;
+    float total_dy = app_target_y_mm - app_segment_start_y_mm;
+    float progress;
+    float scale;
+
+    if (((total_dx * total_dx) + (total_dy * total_dy)) < 1.0f)
+    {
+        return APP_CHASSIS_TASK_MOVE_SPEED_MM_S;
+    }
+
+    progress = CalcSegmentProgress(pose);
+    if (progress < 0.0f)
+    {
+        progress = 0.0f;
+    }
+    if (progress > 1.0f)
+    {
+        progress = 1.0f;
+    }
+
+    scale = sinf(progress * app_pi);
+    if (scale < APP_CHASSIS_TASK_PROFILE_MIN_SCALE)
+    {
+        scale = APP_CHASSIS_TASK_PROFILE_MIN_SCALE;
+    }
+
+    return APP_CHASSIS_TASK_MOVE_SPEED_MM_S * scale;
+}
+
+static HAL_StatusTypeDef DriveAlongSegmentGyro(const BspChassisOdomPose *pose,
+                                               float gyro_z_deg_s,
+                                               float max_speed_mm_s)
+{
+    float total_dx = app_target_x_mm - app_segment_start_x_mm;
+    float total_dy = app_target_y_mm - app_segment_start_y_mm;
+    float total_dist = sqrtf((total_dx * total_dx) + (total_dy * total_dy));
+    float ux;
+    float uy;
+    float nx;
+    float ny;
+    float done_dx;
+    float done_dy;
+    float along_done;
+    float along_remaining;
+    float cross_error;
+    float along_speed;
+    float cross_speed;
+    float vx_world_mm_s;
+    float vy_world_mm_s;
+    float yaw_rad;
+    float cos_yaw;
+    float sin_yaw;
+    float forward_mm_s;
+    float left_mm_s;
+
+    if ((pose == NULL) || (total_dist < 1.0f))
+    {
+        return BspChassisOdom_DriveToGyro(app_target_x_mm,
+                                          app_target_y_mm,
+                                          app_target_yaw_deg,
+                                          gyro_z_deg_s,
+                                          max_speed_mm_s,
+                                          BSP_CHASSIS_ODOM_MAX_CURRENT);
+    }
+
+    ux = total_dx / total_dist;
+    uy = total_dy / total_dist;
+    nx = -uy;
+    ny = ux;
+
+    done_dx = pose->x_mm - app_segment_start_x_mm;
+    done_dy = pose->y_mm - app_segment_start_y_mm;
+    along_done = (done_dx * ux) + (done_dy * uy);
+    along_remaining = total_dist - along_done;
+    if (along_remaining < 0.0f)
+    {
+        along_remaining = 0.0f;
+    }
+
+    cross_error = (done_dx * nx) + (done_dy * ny);
+    if (AbsFloat(cross_error) <= APP_CHASSIS_TASK_LINE_CROSS_DEADBAND_MM)
+    {
+        cross_error = 0.0f;
+    }
+
+    along_speed = along_remaining * BSP_CHASSIS_ODOM_POS_KP;
+    if (along_speed > max_speed_mm_s)
+    {
+        along_speed = max_speed_mm_s;
+    }
+    if ((along_remaining > APP_CHASSIS_TASK_MIN_SPEED_DISTANCE_MM) &&
+        (along_speed < BSP_CHASSIS_ODOM_MIN_SPEED_MM_S))
+    {
+        along_speed = BSP_CHASSIS_ODOM_MIN_SPEED_MM_S;
+    }
+
+    cross_speed = LimitFloat(-cross_error * APP_CHASSIS_TASK_LINE_CROSS_KP,
+                             APP_CHASSIS_TASK_LINE_CROSS_MAX_MM_S);
+    vx_world_mm_s = (ux * along_speed) + (nx * cross_speed);
+    vy_world_mm_s = (uy * along_speed) + (ny * cross_speed);
+
+    yaw_rad = pose->yaw_deg * app_pi / 180.0f;
+    cos_yaw = cosf(yaw_rad);
+    sin_yaw = sinf(yaw_rad);
+    forward_mm_s = (vx_world_mm_s * cos_yaw) + (vy_world_mm_s * sin_yaw);
+    left_mm_s = (-vx_world_mm_s * sin_yaw) + (vy_world_mm_s * cos_yaw);
+
+    return BspChassis_SetBodySpeedAngleHoldGyro(BspChassisOdom_MmSToMotorRpm(forward_mm_s),
+                                                BspChassisOdom_MmSToMotorRpm(left_mm_s),
+                                                app_target_yaw_deg,
+                                                pose->yaw_deg,
+                                                gyro_z_deg_s,
+                                                BSP_CHASSIS_ODOM_MAX_CURRENT);
+}
+
+static HAL_StatusTypeDef HoldTargetYaw(float yaw_deg, float gyro_z_deg_s)
+{
+    return BspChassis_SetBodySpeedAngleHoldGyro(0.0f,
+                                                0.0f,
+                                                app_target_yaw_deg,
+                                                yaw_deg,
+                                                gyro_z_deg_s,
+                                                BSP_CHASSIS_ODOM_MAX_CURRENT);
+}
+
+static void HoldReachedMove(uint32_t now, float yaw_deg, float gyro_z_deg_s)
+{
+    (void)HoldTargetYaw(yaw_deg, gyro_z_deg_s);
+
+    if (app_hold_started == 0U)
+    {
+        app_hold_started = 1U;
+        app_hold_tick = now;
+        app_stop_tick = 0U;
+    }
+
+    if (((now - app_hold_tick) >= APP_CHASSIS_TASK_HOLD_AFTER_MOVE_MS) &&
+        ((IsStoppedStable(now) != 0U) ||
+         ((now - app_hold_tick) >= APP_CHASSIS_TASK_STOP_MAX_WAIT_MS)))
+    {
+        SetMode(APP_CHASSIS_MODE_IDLE);
+        app_move_reached = 0U;
+    }
+}
+
 void AppChassisTask_Init(void)
 {
-    app_step = APP_CHASSIS_STEP_WAIT_IMU;
-    app_start_yaw_deg = 0.0f;
-    app_rotate_target_yaw_deg = 0.0f;
-    app_step_tick = 0U;
+    app_mode = APP_CHASSIS_MODE_WAIT_IMU;
+    app_target_x_mm = 0.0f;
+    app_target_y_mm = 0.0f;
+    app_target_yaw_deg = 0.0f;
+    app_segment_start_x_mm = 0.0f;
+    app_segment_start_y_mm = 0.0f;
     app_stop_tick = 0U;
+    app_hold_tick = 0U;
+    app_odom_ready = 0U;
+    app_move_reached = 0U;
+    app_hold_started = 0U;
     (void)BspChassis_Stop();
+}
+
+HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm, float y_cm)
+{
+    const BspChassisOdomPose *pose;
+
+    if (app_odom_ready == 0U)
+    {
+        return HAL_BUSY;
+    }
+
+    pose = BspChassisOdom_GetPose();
+    app_segment_start_x_mm = pose->x_mm;
+    app_segment_start_y_mm = pose->y_mm;
+    app_target_x_mm = pose->x_mm + (x_cm * 10.0f);
+    app_target_y_mm = pose->y_mm + (y_cm * 10.0f);
+    app_target_yaw_deg = pose->yaw_deg;
+    app_move_reached = 0U;
+    SetMode(APP_CHASSIS_MODE_MOVE);
+
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg)
+{
+    if (app_odom_ready == 0U)
+    {
+        return HAL_BUSY;
+    }
+
+    app_target_yaw_deg = BspChassis_WrapAngle360(target_yaw_deg);
+    app_move_reached = 0U;
+    SetMode(APP_CHASSIS_MODE_TURN);
+
+    return HAL_OK;
+}
+
+void AppChassisTask_OnYawZero(float yaw_deg)
+{
+    const BspChassisOdomPose *pose;
+    float x_mm;
+    float y_mm;
+
+    yaw_deg = BspChassis_WrapAngle360(yaw_deg);
+    app_target_yaw_deg = yaw_deg;
+    app_move_reached = 0U;
+
+    if (app_odom_ready != 0U)
+    {
+        pose = BspChassisOdom_GetPose();
+        x_mm = pose->x_mm;
+        y_mm = pose->y_mm;
+        BspChassisOdom_Reset(x_mm, y_mm, yaw_deg);
+        app_segment_start_x_mm = x_mm;
+        app_segment_start_y_mm = y_mm;
+        app_target_x_mm = x_mm;
+        app_target_y_mm = y_mm;
+    }
+
+    SetMode(APP_CHASSIS_MODE_IDLE);
 }
 
 void AppChassisTask_Task(uint8_t yaw_valid,
@@ -125,9 +373,12 @@ void AppChassisTask_Task(uint8_t yaw_valid,
                          float gyro_z_deg_s)
 {
     uint32_t now = HAL_GetTick();
+    const BspChassisOdomPose *pose;
 
     if (yaw_valid == 0U)
     {
+        app_odom_ready = 0U;
+        SetMode(APP_CHASSIS_MODE_WAIT_IMU);
         (void)BspChassis_Stop();
         return;
     }
@@ -138,137 +389,60 @@ void AppChassisTask_Task(uint8_t yaw_valid,
         gyro_z_deg_s = 0.0f;
     }
 
-    if (app_step != APP_CHASSIS_STEP_WAIT_IMU)
+    if (app_odom_ready == 0U)
+    {
+        BspChassisOdom_Reset(0.0f, 0.0f, yaw_deg);
+        app_target_yaw_deg = yaw_deg;
+        app_odom_ready = 1U;
+        SetMode(APP_CHASSIS_MODE_IDLE);
+    }
+    else
     {
         BspChassisOdom_Update(yaw_deg);
     }
+    pose = BspChassisOdom_GetPose();
 
-    switch (app_step)
+    switch (app_mode)
     {
-    case APP_CHASSIS_STEP_WAIT_IMU:
-        app_start_yaw_deg = yaw_deg;
-        app_rotate_target_yaw_deg = BspChassis_WrapAngle360(app_start_yaw_deg -
-                                                            APP_CHASSIS_TASK_CLOCKWISE_YAW_DEG);
-        BspChassisOdom_Reset(0.0f, 0.0f, yaw_deg);
-        SetStep(APP_CHASSIS_STEP_START_DELAY, now);
-        break;
-
-    case APP_CHASSIS_STEP_START_DELAY:
-        (void)BspChassis_Stop();
-        if ((now - app_step_tick) >= APP_CHASSIS_TASK_START_DELAY_MS)
+    case APP_CHASSIS_MODE_MOVE:
+        if (app_move_reached != 0U)
         {
-            SetStep(APP_CHASSIS_STEP_MOVE_FORWARD_1, now);
+            HoldReachedMove(now, yaw_deg, gyro_z_deg_s);
         }
-        break;
-
-    case APP_CHASSIS_STEP_MOVE_FORWARD_1:
-        if (BspChassisOdom_IsAt(APP_TARGET_FORWARD_1_X_MM,
-                                APP_TARGET_FORWARD_1_Y_MM,
-                                BSP_CHASSIS_ODOM_POS_TOLERANCE_MM) != 0U)
+        else if (IsMoveTargetReached(pose) != 0U)
         {
-            SetStep(APP_CHASSIS_STEP_HOLD_FORWARD_1, now);
+            app_move_reached = 1U;
+            BspChassis_ResetPid();
+            HoldReachedMove(now, yaw_deg, gyro_z_deg_s);
         }
         else
         {
-            (void)BspChassisOdom_DriveToGyro(APP_TARGET_FORWARD_1_X_MM,
-                                             APP_TARGET_FORWARD_1_Y_MM,
-                                             app_start_yaw_deg,
-                                             gyro_z_deg_s,
-                                             APP_CHASSIS_TASK_MOVE_SPEED_MM_S,
-                                             BSP_CHASSIS_ODOM_MAX_CURRENT);
+            (void)DriveAlongSegmentGyro(pose,
+                                        gyro_z_deg_s,
+                                        CalcProfileMaxSpeed(pose));
         }
         break;
 
-    case APP_CHASSIS_STEP_HOLD_FORWARD_1:
-        HoldThenNext(now, APP_CHASSIS_STEP_MOVE_RIGHT);
-        break;
-
-    case APP_CHASSIS_STEP_MOVE_RIGHT:
-        if (BspChassisOdom_IsAt(APP_TARGET_RIGHT_X_MM,
-                                APP_TARGET_RIGHT_Y_MM,
-                                BSP_CHASSIS_ODOM_POS_TOLERANCE_MM) != 0U)
-        {
-            SetStep(APP_CHASSIS_STEP_HOLD_RIGHT, now);
-        }
-        else
-        {
-            (void)BspChassisOdom_DriveToGyro(APP_TARGET_RIGHT_X_MM,
-                                             APP_TARGET_RIGHT_Y_MM,
-                                             app_start_yaw_deg,
-                                             gyro_z_deg_s,
-                                             APP_CHASSIS_TASK_MOVE_SPEED_MM_S,
-                                             BSP_CHASSIS_ODOM_MAX_CURRENT);
-        }
-        break;
-
-    case APP_CHASSIS_STEP_HOLD_RIGHT:
-        HoldThenNext(now, APP_CHASSIS_STEP_MOVE_LEFT);
-        break;
-
-    case APP_CHASSIS_STEP_MOVE_LEFT:
-        if (BspChassisOdom_IsAt(APP_TARGET_LEFT_X_MM,
-                                APP_TARGET_LEFT_Y_MM,
-                                BSP_CHASSIS_ODOM_POS_TOLERANCE_MM) != 0U)
-        {
-            SetStep(APP_CHASSIS_STEP_HOLD_LEFT, now);
-        }
-        else
-        {
-            (void)BspChassisOdom_DriveToGyro(APP_TARGET_LEFT_X_MM,
-                                             APP_TARGET_LEFT_Y_MM,
-                                             app_start_yaw_deg,
-                                             gyro_z_deg_s,
-                                             APP_CHASSIS_TASK_MOVE_SPEED_MM_S,
-                                             BSP_CHASSIS_ODOM_MAX_CURRENT);
-        }
-        break;
-
-    case APP_CHASSIS_STEP_HOLD_LEFT:
-        HoldThenNext(now, APP_CHASSIS_STEP_MOVE_FORWARD_2);
-        break;
-
-    case APP_CHASSIS_STEP_MOVE_FORWARD_2:
-        if (BspChassisOdom_IsAt(APP_TARGET_FORWARD_2_X_MM,
-                                APP_TARGET_FORWARD_2_Y_MM,
-                                BSP_CHASSIS_ODOM_POS_TOLERANCE_MM) != 0U)
-        {
-            SetStep(APP_CHASSIS_STEP_HOLD_FORWARD_2, now);
-        }
-        else
-        {
-            (void)BspChassisOdom_DriveToGyro(APP_TARGET_FORWARD_2_X_MM,
-                                             APP_TARGET_FORWARD_2_Y_MM,
-                                             app_start_yaw_deg,
-                                             gyro_z_deg_s,
-                                             APP_CHASSIS_TASK_MOVE_SPEED_MM_S,
-                                             BSP_CHASSIS_ODOM_MAX_CURRENT);
-        }
-        break;
-
-    case APP_CHASSIS_STEP_HOLD_FORWARD_2:
-        HoldThenNext(now, APP_CHASSIS_STEP_ROTATE_CLOCKWISE);
-        break;
-
-    case APP_CHASSIS_STEP_ROTATE_CLOCKWISE:
-        if ((IsYawAtTarget(app_rotate_target_yaw_deg, yaw_deg) != 0U) &&
+    case APP_CHASSIS_MODE_TURN:
+        if ((IsYawAtTarget(app_target_yaw_deg, yaw_deg) != 0U) &&
             (IsStoppedStable(now) != 0U))
         {
-            SetStep(APP_CHASSIS_STEP_DONE, now);
+            SetMode(APP_CHASSIS_MODE_IDLE);
+            (void)HoldTargetYaw(yaw_deg, gyro_z_deg_s);
         }
         else
         {
-            (void)BspChassis_SetBodySpeedAngleHoldGyro(0.0f,
-                                                       0.0f,
-                                                       app_rotate_target_yaw_deg,
-                                                       yaw_deg,
-                                                       gyro_z_deg_s,
-                                                       BSP_CHASSIS_ODOM_MAX_CURRENT);
+            (void)HoldTargetYaw(yaw_deg, gyro_z_deg_s);
         }
         break;
 
-    case APP_CHASSIS_STEP_DONE:
-    default:
+    case APP_CHASSIS_MODE_WAIT_IMU:
         (void)BspChassis_Stop();
+        break;
+
+    case APP_CHASSIS_MODE_IDLE:
+    default:
+        (void)HoldTargetYaw(yaw_deg, gyro_z_deg_s);
         break;
     }
 }

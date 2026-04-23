@@ -48,11 +48,42 @@ extern "C" {
 #define APP_CHASSIS_TASK_STOP_STABLE_MS         250U
 #endif
 
+#ifndef APP_CHASSIS_TASK_STOP_MAX_WAIT_MS
+#define APP_CHASSIS_TASK_STOP_MAX_WAIT_MS       1500U
+#endif
+
 #ifndef APP_CHASSIS_TASK_ROTATE_TOLERANCE_DEG
 #define APP_CHASSIS_TASK_ROTATE_TOLERANCE_DEG   1.0f
 #endif
 
+#ifndef APP_CHASSIS_TASK_PROFILE_MIN_SCALE
+#define APP_CHASSIS_TASK_PROFILE_MIN_SCALE      0.08f
+#endif
+
+#ifndef APP_CHASSIS_TASK_SEGMENT_DONE_PROGRESS
+#define APP_CHASSIS_TASK_SEGMENT_DONE_PROGRESS  0.990f
+#endif
+
+#ifndef APP_CHASSIS_TASK_LINE_CROSS_KP
+#define APP_CHASSIS_TASK_LINE_CROSS_KP          2.2f
+#endif
+
+#ifndef APP_CHASSIS_TASK_LINE_CROSS_MAX_MM_S
+#define APP_CHASSIS_TASK_LINE_CROSS_MAX_MM_S    180.0f
+#endif
+
+#ifndef APP_CHASSIS_TASK_LINE_CROSS_DEADBAND_MM
+#define APP_CHASSIS_TASK_LINE_CROSS_DEADBAND_MM 8.0f
+#endif
+
+#ifndef APP_CHASSIS_TASK_MIN_SPEED_DISTANCE_MM
+#define APP_CHASSIS_TASK_MIN_SPEED_DISTANCE_MM  220.0f
+#endif
+
 void AppChassisTask_Init(void);
+HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm, float y_cm);
+HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg);
+void AppChassisTask_OnYawZero(float yaw_deg);
 void AppChassisTask_Task(uint8_t yaw_valid,
                          float yaw_deg,
                          uint8_t gyro_valid,
