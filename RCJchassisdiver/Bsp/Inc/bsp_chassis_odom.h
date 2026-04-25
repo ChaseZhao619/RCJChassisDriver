@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 #ifndef BSP_CHASSIS_ODOM_POS_TOLERANCE_MM
-#define BSP_CHASSIS_ODOM_POS_TOLERANCE_MM       15.0f
+#define BSP_CHASSIS_ODOM_POS_TOLERANCE_MM       5.0f
 #endif
 
 #ifndef BSP_CHASSIS_ODOM_MIN_SPEED_MM_S
