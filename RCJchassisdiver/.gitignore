@@ -1,3 +1,30 @@
-build
-mx.scratch
-!.settings
+build/
+Debug/
+Release/
+cmake-build-*/
+mx.scratch/
+
+# STM32CubeIDE / CubeMX local metadata
+.settings/
+.mxproject
+.project
+.cproject
+*.launch
+
+# Local CMake metadata
+CMakeUserPresets.json
+compile_commands.json
+
+# Build outputs
+*.o
+*.d
+*.su
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.log
+
+# OS/editor noise
+.DS_Store
