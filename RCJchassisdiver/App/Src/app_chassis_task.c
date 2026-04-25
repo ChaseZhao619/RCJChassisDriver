@@ -24,6 +24,10 @@ static uint32_t app_hold_tick;
 static uint8_t app_odom_ready;
 static uint8_t app_move_reached;
 static uint8_t app_hold_started;
+static float app_request_last_x_mm;
+static float app_request_last_y_mm;
+static float app_request_last_yaw_deg;
+static uint8_t app_request_last_valid;
 
 static const float app_pi = 3.14159265358979323846f;
 
@@ -304,6 +308,10 @@ void AppChassisTask_Init(void)
     app_odom_ready = 0U;
     app_move_reached = 0U;
     app_hold_started = 0U;
+    app_request_last_x_mm = 0.0f;
+    app_request_last_y_mm = 0.0f;
+    app_request_last_yaw_deg = 0.0f;
+    app_request_last_valid = 0U;
     (void)BspChassis_Stop();
 }
 
@@ -338,6 +346,42 @@ HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg)
     app_target_yaw_deg = BspChassis_WrapAngle360(target_yaw_deg);
     app_move_reached = 0U;
     SetMode(APP_CHASSIS_MODE_TURN);
+
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef AppChassisTask_GetRequestDelta(float *dx_cm, float *dy_cm, float *dyaw_deg)
+{
+    const BspChassisOdomPose *pose;
+
+    if ((dx_cm == NULL) || (dy_cm == NULL) || (dyaw_deg == NULL))
+    {
+        return HAL_ERROR;
+    }
+
+    if (app_odom_ready == 0U)
+    {
+        return HAL_BUSY;
+    }
+
+    pose = BspChassisOdom_GetPose();
+    if (app_request_last_valid == 0U)
+    {
+        *dx_cm = 0.0f;
+        *dy_cm = 0.0f;
+        *dyaw_deg = 0.0f;
+        app_request_last_valid = 1U;
+    }
+    else
+    {
+        *dx_cm = (pose->x_mm - app_request_last_x_mm) * 0.1f;
+        *dy_cm = (pose->y_mm - app_request_last_y_mm) * 0.1f;
+        *dyaw_deg = BspChassis_GetAngleErrorDeg(pose->yaw_deg, app_request_last_yaw_deg);
+    }
+
+    app_request_last_x_mm = pose->x_mm;
+    app_request_last_y_mm = pose->y_mm;
+    app_request_last_yaw_deg = pose->yaw_deg;
 
     return HAL_OK;
 }

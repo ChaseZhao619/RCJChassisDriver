@@ -130,7 +130,7 @@ static void SendCommandError(char *line)
 
     if (line == NULL)
     {
-        SendPayloadWithCrc("cmd error");
+        SendPayloadWithCrc("cmd eror");
         return;
     }
 
@@ -205,12 +205,53 @@ static uint8_t EnsureLineEnded(char *cursor)
     return (*cursor == '\0') ? 1U : 0U;
 }
 
+static int32_t FloatToCent(float value)
+{
+    if (value >= 0.0f)
+    {
+        return (int32_t)((value * 100.0f) + 0.5f);
+    }
+
+    return (int32_t)((value * 100.0f) - 0.5f);
+}
+
+static void FormatCentValue(char *buffer, uint16_t size, int32_t value_cent)
+{
+    int32_t abs_cent = value_cent;
+    const char *sign = "";
+
+    if ((buffer == NULL) || (size == 0U))
+    {
+        return;
+    }
+
+    if (value_cent < 0)
+    {
+        sign = "-";
+        abs_cent = -value_cent;
+    }
+
+    (void)snprintf(buffer,
+                   size,
+                   "%s%ld.%02ld",
+                   sign,
+                   (long)(abs_cent / 100),
+                   (long)(abs_cent % 100));
+}
+
 static void HandlePayload(char *payload)
 {
     char *cursor;
     float x_cm;
     float y_cm;
     float yaw_deg;
+    float dx_cm;
+    float dy_cm;
+    float dyaw_deg;
+    char dx_text[16];
+    char dy_text[16];
+    char dyaw_text[16];
+    char response[APP_PI_COMM_LINE_SIZE];
     HAL_StatusTypeDef status;
 
     if (strncmp(payload, "cmd_dis", 7U) == 0)
@@ -241,6 +282,35 @@ static void HandlePayload(char *payload)
 
         status = AppChassisTask_CommandTurnDeg(yaw_deg);
         SendPayloadWithCrc((status == HAL_OK) ? "cmd_turn ok" : "cmd_turn busy");
+        return;
+    }
+
+    if (strncmp(payload, "cmd_request", 11U) == 0)
+    {
+        cursor = payload + 11U;
+        if (EnsureLineEnded(cursor) == 0U)
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = AppChassisTask_GetRequestDelta(&dx_cm, &dy_cm, &dyaw_deg);
+        if (status != HAL_OK)
+        {
+            SendPayloadWithCrc("cmd_request busy");
+            return;
+        }
+
+        FormatCentValue(dx_text, sizeof(dx_text), FloatToCent(dx_cm));
+        FormatCentValue(dy_text, sizeof(dy_text), FloatToCent(dy_cm));
+        FormatCentValue(dyaw_text, sizeof(dyaw_text), FloatToCent(dyaw_deg));
+        (void)snprintf(response,
+                       sizeof(response),
+                       "cmd_request %s %s %s",
+                       dx_text,
+                       dy_text,
+                       dyaw_text);
+        SendPayloadWithCrc(response);
         return;
     }
 

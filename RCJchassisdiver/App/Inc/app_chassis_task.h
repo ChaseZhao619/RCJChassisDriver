@@ -83,6 +83,7 @@ extern "C" {
 void AppChassisTask_Init(void);
 HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm, float y_cm);
 HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg);
+HAL_StatusTypeDef AppChassisTask_GetRequestDelta(float *dx_cm, float *dy_cm, float *dyaw_deg);
 void AppChassisTask_OnYawZero(float yaw_deg);
 void AppChassisTask_Task(uint8_t yaw_valid,
                          float yaw_deg,

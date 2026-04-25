@@ -52,6 +52,10 @@
 #define MAIN_ZERO_KEY_DEBOUNCE_MS 30U
 #endif
 
+#ifndef MAIN_LOOP_DELAY_MS
+#define MAIN_LOOP_DELAY_MS 1U
+#endif
+
 #ifndef MAIN_DEBUG_USART
 #define MAIN_DEBUG_USART BSP_USART_1
 #endif
@@ -194,6 +198,8 @@ int main(void)
     uint8_t chassis_gyro_valid = 0U;
     uint32_t now = HAL_GetTick();
 
+    AppPiComm_Task();
+
     if (Bno085_ReadSensorData(&bno085_sensor_data) == HAL_OK)
     {
       if ((bno085_sensor_data.has_rotation != 0U) &&
@@ -271,7 +277,7 @@ int main(void)
                         chassis_gyro_valid,
                         bno085_gyro_z_deg_s);
     AppPiComm_Task();
-    HAL_Delay(5);
+    HAL_Delay(MAIN_LOOP_DELAY_MS);
   }
   /* USER CODE END 3 */
 }
