@@ -24,6 +24,8 @@ static uint32_t app_hold_tick;
 static uint8_t app_odom_ready;
 static uint8_t app_move_reached;
 static uint8_t app_hold_started;
+static AppChassisTaskDoneEvent app_active_command;
+static AppChassisTaskDoneEvent app_done_event;
 static float app_request_last_x_mm;
 static float app_request_last_y_mm;
 static float app_request_last_yaw_deg;
@@ -107,6 +109,15 @@ static void SetMode(AppChassisMode mode)
     app_hold_tick = 0U;
     app_hold_started = 0U;
     BspChassis_ResetPid();
+}
+
+static void MarkActiveCommandDone(void)
+{
+    if (app_active_command != APP_CHASSIS_TASK_DONE_NONE)
+    {
+        app_done_event = app_active_command;
+        app_active_command = APP_CHASSIS_TASK_DONE_NONE;
+    }
 }
 
 static uint8_t IsYawAtTarget(float target_yaw_deg, float current_yaw_deg)
@@ -290,6 +301,7 @@ static void HoldReachedMove(uint32_t now, float yaw_deg, float gyro_z_deg_s)
         ((IsStoppedStable(now) != 0U) ||
          ((now - app_hold_tick) >= APP_CHASSIS_TASK_STOP_MAX_WAIT_MS)))
     {
+        MarkActiveCommandDone();
         SetMode(APP_CHASSIS_MODE_IDLE);
         app_move_reached = 0U;
     }
@@ -308,6 +320,8 @@ void AppChassisTask_Init(void)
     app_odom_ready = 0U;
     app_move_reached = 0U;
     app_hold_started = 0U;
+    app_active_command = APP_CHASSIS_TASK_DONE_NONE;
+    app_done_event = APP_CHASSIS_TASK_DONE_NONE;
     app_request_last_x_mm = 0.0f;
     app_request_last_y_mm = 0.0f;
     app_request_last_yaw_deg = 0.0f;
@@ -331,6 +345,8 @@ HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm, float y_cm)
     app_target_y_mm = pose->y_mm + (y_cm * 10.0f);
     app_target_yaw_deg = pose->yaw_deg;
     app_move_reached = 0U;
+    app_done_event = APP_CHASSIS_TASK_DONE_NONE;
+    app_active_command = APP_CHASSIS_TASK_DONE_DIS;
     SetMode(APP_CHASSIS_MODE_MOVE);
 
     return HAL_OK;
@@ -345,6 +361,8 @@ HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg)
 
     app_target_yaw_deg = BspChassis_WrapAngle360(target_yaw_deg);
     app_move_reached = 0U;
+    app_done_event = APP_CHASSIS_TASK_DONE_NONE;
+    app_active_command = APP_CHASSIS_TASK_DONE_TURN;
     SetMode(APP_CHASSIS_MODE_TURN);
 
     return HAL_OK;
@@ -386,6 +404,14 @@ HAL_StatusTypeDef AppChassisTask_GetRequestDelta(float *dx_cm, float *dy_cm, flo
     return HAL_OK;
 }
 
+AppChassisTaskDoneEvent AppChassisTask_ConsumeDoneEvent(void)
+{
+    AppChassisTaskDoneEvent event = app_done_event;
+
+    app_done_event = APP_CHASSIS_TASK_DONE_NONE;
+    return event;
+}
+
 void AppChassisTask_OnYawZero(float yaw_deg)
 {
     const BspChassisOdomPose *pose;
@@ -395,6 +421,8 @@ void AppChassisTask_OnYawZero(float yaw_deg)
     yaw_deg = BspChassis_WrapAngle360(yaw_deg);
     app_target_yaw_deg = yaw_deg;
     app_move_reached = 0U;
+    app_active_command = APP_CHASSIS_TASK_DONE_NONE;
+    app_done_event = APP_CHASSIS_TASK_DONE_NONE;
 
     if (app_odom_ready != 0U)
     {
@@ -422,6 +450,7 @@ void AppChassisTask_Task(uint8_t yaw_valid,
     if (yaw_valid == 0U)
     {
         app_odom_ready = 0U;
+        app_active_command = APP_CHASSIS_TASK_DONE_NONE;
         SetMode(APP_CHASSIS_MODE_WAIT_IMU);
         (void)BspChassis_Stop();
         return;
@@ -471,6 +500,7 @@ void AppChassisTask_Task(uint8_t yaw_valid,
         if ((IsYawAtTarget(app_target_yaw_deg, yaw_deg) != 0U) &&
             (IsStoppedStable(now) != 0U))
         {
+            MarkActiveCommandDone();
             SetMode(APP_CHASSIS_MODE_IDLE);
             (void)HoldTargetYaw(yaw_deg, gyro_z_deg_s);
         }

@@ -8,6 +8,13 @@ extern "C" {
 #include "main.h"
 #include <stdint.h>
 
+typedef enum
+{
+    APP_CHASSIS_TASK_DONE_NONE = 0,
+    APP_CHASSIS_TASK_DONE_DIS,
+    APP_CHASSIS_TASK_DONE_TURN,
+} AppChassisTaskDoneEvent;
+
 #ifndef APP_CHASSIS_TASK_FORWARD_1_DISTANCE_MM
 #define APP_CHASSIS_TASK_FORWARD_1_DISTANCE_MM  450.0f
 #endif
@@ -84,6 +91,7 @@ void AppChassisTask_Init(void);
 HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm, float y_cm);
 HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg);
 HAL_StatusTypeDef AppChassisTask_GetRequestDelta(float *dx_cm, float *dy_cm, float *dyaw_deg);
+AppChassisTaskDoneEvent AppChassisTask_ConsumeDoneEvent(void);
 void AppChassisTask_OnYawZero(float yaw_deg);
 void AppChassisTask_Task(uint8_t yaw_valid,
                          float yaw_deg,

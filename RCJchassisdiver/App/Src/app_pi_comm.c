@@ -342,6 +342,24 @@ static uint8_t PopByte(uint8_t *byte)
     return 1U;
 }
 
+static void SendDoneEvent(void)
+{
+    switch (AppChassisTask_ConsumeDoneEvent())
+    {
+    case APP_CHASSIS_TASK_DONE_DIS:
+        SendPayloadWithCrc("cmd_dis done");
+        break;
+
+    case APP_CHASSIS_TASK_DONE_TURN:
+        SendPayloadWithCrc("cmd_turn done");
+        break;
+
+    case APP_CHASSIS_TASK_DONE_NONE:
+    default:
+        break;
+    }
+}
+
 void AppPiComm_Init(void)
 {
     app_pi_rx_head = 0U;
@@ -353,6 +371,8 @@ void AppPiComm_Init(void)
 void AppPiComm_Task(void)
 {
     uint8_t byte;
+
+    SendDoneEvent();
 
     while (PopByte(&byte) != 0U)
     {
@@ -367,6 +387,7 @@ void AppPiComm_Task(void)
             if (app_pi_line_len > 0U)
             {
                 ProcessLine(app_pi_line);
+                SendDoneEvent();
             }
             app_pi_line_len = 0U;
             continue;
@@ -381,8 +402,11 @@ void AppPiComm_Task(void)
         {
             app_pi_line_len = 0U;
             SendPayloadWithCrc("err long");
+            SendDoneEvent();
         }
     }
+
+    SendDoneEvent();
 }
 
 void AppPiComm_OnUartRxCplt(UART_HandleTypeDef *huart)
