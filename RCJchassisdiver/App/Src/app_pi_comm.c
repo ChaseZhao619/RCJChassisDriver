@@ -331,10 +331,12 @@ static void HandlePayload(char *payload)
     float dx_cm;
     float dy_cm;
     float dyaw_deg;
+    float request_yaw_deg;
     uint8_t suck_speed_percent;
     char dx_text[16];
     char dy_text[16];
     char dyaw_text[16];
+    char yaw_text[16];
     char response[APP_PI_COMM_LINE_SIZE];
     HAL_StatusTypeDef status;
 
@@ -425,7 +427,7 @@ static void HandlePayload(char *payload)
             return;
         }
 
-        status = AppChassisTask_GetRequestDelta(&dx_cm, &dy_cm, &dyaw_deg);
+        status = AppChassisTask_GetRequestDelta(&dx_cm, &dy_cm, &dyaw_deg, &request_yaw_deg);
         if (status != HAL_OK)
         {
             SendPayloadWithCrc("cmd_request busy");
@@ -435,12 +437,14 @@ static void HandlePayload(char *payload)
         FormatCentValue(dx_text, sizeof(dx_text), FloatToCent(dx_cm));
         FormatCentValue(dy_text, sizeof(dy_text), FloatToCent(dy_cm));
         FormatCentValue(dyaw_text, sizeof(dyaw_text), FloatToCent(dyaw_deg));
+        FormatCentValue(yaw_text, sizeof(yaw_text), FloatToCent(request_yaw_deg));
         (void)snprintf(response,
                        sizeof(response),
-                       "cmd_request %s %s %s",
+                       "cmd_request %s %s %s %s",
                        dx_text,
                        dy_text,
-                       dyaw_text);
+                       dyaw_text,
+                       yaw_text);
         SendPayloadWithCrc(response);
         return;
     }

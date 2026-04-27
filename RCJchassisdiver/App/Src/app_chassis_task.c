@@ -368,11 +368,14 @@ HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef AppChassisTask_GetRequestDelta(float *dx_cm, float *dy_cm, float *dyaw_deg)
+HAL_StatusTypeDef AppChassisTask_GetRequestDelta(float *dx_cm,
+                                                 float *dy_cm,
+                                                 float *dyaw_deg,
+                                                 float *yaw_deg)
 {
     const BspChassisOdomPose *pose;
 
-    if ((dx_cm == NULL) || (dy_cm == NULL) || (dyaw_deg == NULL))
+    if ((dx_cm == NULL) || (dy_cm == NULL) || (dyaw_deg == NULL) || (yaw_deg == NULL))
     {
         return HAL_ERROR;
     }
@@ -396,6 +399,7 @@ HAL_StatusTypeDef AppChassisTask_GetRequestDelta(float *dx_cm, float *dy_cm, flo
         *dy_cm = (pose->y_mm - app_request_last_y_mm) * 0.1f;
         *dyaw_deg = BspChassis_GetAngleErrorDeg(pose->yaw_deg, app_request_last_yaw_deg);
     }
+    *yaw_deg = pose->yaw_deg;
 
     app_request_last_x_mm = pose->x_mm;
     app_request_last_y_mm = pose->y_mm;
