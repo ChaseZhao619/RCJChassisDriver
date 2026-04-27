@@ -18,9 +18,8 @@ static volatile uint16_t app_pi_rx_head;
 static volatile uint16_t app_pi_rx_tail;
 static char app_pi_line[APP_PI_COMM_LINE_SIZE];
 static uint16_t app_pi_line_len;
-static int32_t app_pi_done_dis_x_cent;
-static int32_t app_pi_done_dis_y_cent;
-static int32_t app_pi_done_turn_yaw_cent;
+static char app_pi_done_dis_args[APP_PI_COMM_LINE_SIZE];
+static char app_pi_done_turn_args[APP_PI_COMM_LINE_SIZE];
 static uint8_t app_pi_done_dis_valid;
 static uint8_t app_pi_done_turn_valid;
 
@@ -244,44 +243,37 @@ static void FormatCentValue(char *buffer, uint16_t size, int32_t value_cent)
                    (long)(abs_cent % 100));
 }
 
-static void SendDistanceCommandReply(const char *state, int32_t x_cent, int32_t y_cent)
+static void CopyCommandArgs(char *dest, uint16_t size, const char *args)
 {
-    char x_text[16];
-    char y_text[16];
-    char response[APP_PI_COMM_LINE_SIZE];
-
-    if (state == NULL)
+    if ((dest == NULL) || (size == 0U))
     {
         return;
     }
 
-    FormatCentValue(x_text, sizeof(x_text), x_cent);
-    FormatCentValue(y_text, sizeof(y_text), y_cent);
-    (void)snprintf(response,
-                   sizeof(response),
-                   "cmd_dis %s %s %s",
-                   state,
-                   x_text,
-                   y_text);
-    SendPayloadWithCrc(response);
+    if (args == NULL)
+    {
+        dest[0] = '\0';
+        return;
+    }
+
+    (void)snprintf(dest, size, "%s", args);
 }
 
-static void SendTurnCommandReply(const char *state, int32_t yaw_cent)
+static void SendCommandStateReply(const char *command, const char *state, const char *args)
 {
-    char yaw_text[16];
     char response[APP_PI_COMM_LINE_SIZE];
 
-    if (state == NULL)
+    if ((command == NULL) || (state == NULL))
     {
         return;
     }
 
-    FormatCentValue(yaw_text, sizeof(yaw_text), yaw_cent);
     (void)snprintf(response,
                    sizeof(response),
-                   "cmd_turn %s %s",
+                   "%s %s%s",
+                   command,
                    state,
-                   yaw_text);
+                   (args != NULL) ? args : "");
     SendPayloadWithCrc(response);
 }
 
@@ -291,9 +283,6 @@ static void HandlePayload(char *payload)
     float x_cm;
     float y_cm;
     float yaw_deg;
-    int32_t x_cent;
-    int32_t y_cent;
-    int32_t yaw_cent;
     float dx_cm;
     float dy_cm;
     float dyaw_deg;
@@ -314,20 +303,19 @@ static void HandlePayload(char *payload)
             return;
         }
 
-        x_cent = FloatToCent(x_cm);
-        y_cent = FloatToCent(y_cm);
         status = AppChassisTask_CommandDistanceCm(x_cm, y_cm);
         if (status == HAL_OK)
         {
-            app_pi_done_dis_x_cent = x_cent;
-            app_pi_done_dis_y_cent = y_cent;
+            CopyCommandArgs(app_pi_done_dis_args,
+                            sizeof(app_pi_done_dis_args),
+                            payload + 7U);
             app_pi_done_dis_valid = 1U;
             app_pi_done_turn_valid = 0U;
-            SendDistanceCommandReply("ok", x_cent, y_cent);
+            SendCommandStateReply("cmd_dis", "ok", payload + 7U);
         }
         else
         {
-            SendDistanceCommandReply("busy", x_cent, y_cent);
+            SendCommandStateReply("cmd_dis", "busy", payload + 7U);
         }
         return;
     }
@@ -342,18 +330,19 @@ static void HandlePayload(char *payload)
             return;
         }
 
-        yaw_cent = FloatToCent(yaw_deg);
         status = AppChassisTask_CommandTurnDeg(yaw_deg);
         if (status == HAL_OK)
         {
-            app_pi_done_turn_yaw_cent = yaw_cent;
+            CopyCommandArgs(app_pi_done_turn_args,
+                            sizeof(app_pi_done_turn_args),
+                            payload + 8U);
             app_pi_done_turn_valid = 1U;
             app_pi_done_dis_valid = 0U;
-            SendTurnCommandReply("ok", yaw_cent);
+            SendCommandStateReply("cmd_turn", "ok", payload + 8U);
         }
         else
         {
-            SendTurnCommandReply("busy", yaw_cent);
+            SendCommandStateReply("cmd_turn", "busy", payload + 8U);
         }
         return;
     }
@@ -422,9 +411,7 @@ static void SendDoneEvent(void)
     case APP_CHASSIS_TASK_DONE_DIS:
         if (app_pi_done_dis_valid != 0U)
         {
-            SendDistanceCommandReply("done",
-                                     app_pi_done_dis_x_cent,
-                                     app_pi_done_dis_y_cent);
+            SendCommandStateReply("cmd_dis", "done", app_pi_done_dis_args);
             app_pi_done_dis_valid = 0U;
         }
         else
@@ -436,7 +423,7 @@ static void SendDoneEvent(void)
     case APP_CHASSIS_TASK_DONE_TURN:
         if (app_pi_done_turn_valid != 0U)
         {
-            SendTurnCommandReply("done", app_pi_done_turn_yaw_cent);
+            SendCommandStateReply("cmd_turn", "done", app_pi_done_turn_args);
             app_pi_done_turn_valid = 0U;
         }
         else
@@ -456,9 +443,8 @@ void AppPiComm_Init(void)
     app_pi_rx_head = 0U;
     app_pi_rx_tail = 0U;
     app_pi_line_len = 0U;
-    app_pi_done_dis_x_cent = 0;
-    app_pi_done_dis_y_cent = 0;
-    app_pi_done_turn_yaw_cent = 0;
+    app_pi_done_dis_args[0] = '\0';
+    app_pi_done_turn_args[0] = '\0';
     app_pi_done_dis_valid = 0U;
     app_pi_done_turn_valid = 0U;
     StartReceive();
