@@ -20,6 +20,7 @@
 #include "main.h"
 #include "can.h"
 #include "i2c.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -28,6 +29,8 @@
 #include "bsp_usart.h"
 #include "bsp_bno085.h"
 #include "bsp_motor.h"
+#include "bsp_suction_motor.h"
+#include "bsp_suction_motor_test.h"
 #include "app_chassis_task.h"
 #include "app_pi_comm.h"
 
@@ -132,11 +135,17 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART6_UART_Init();
   MX_I2C1_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   if (BspMotor_Init() != HAL_OK)
   {
     Error_Handler();
   }
+  if (BspSuctionMotor_Init() != HAL_OK)
+  {
+    Error_Handler();
+  }
+  BspSuctionMotorTest_Init();
   AppChassisTask_Init();
   AppPiComm_Init();
 
@@ -276,6 +285,7 @@ int main(void)
                         bno085_yaw_deg,
                         chassis_gyro_valid,
                         bno085_gyro_z_deg_s);
+    BspSuctionMotorTest_Task();
     AppPiComm_Task();
     HAL_Delay(MAIN_LOOP_DELAY_MS);
   }
