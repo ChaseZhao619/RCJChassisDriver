@@ -1,6 +1,7 @@
 #include "app_pi_comm.h"
 
 #include "app_chassis_task.h"
+#include "bsp_suction_motor.h"
 #include "bsp_usart.h"
 #include "usart.h"
 #include <ctype.h>
@@ -98,6 +99,33 @@ static uint8_t ReadFloat(char **cursor, float *value)
     }
 
     *cursor = endptr;
+    return 1U;
+}
+
+static uint8_t ReadUint8(char **cursor, uint8_t *value)
+{
+    char *endptr;
+    unsigned long parsed_value;
+
+    if ((cursor == NULL) || (*cursor == NULL) || (value == NULL))
+    {
+        return 0U;
+    }
+
+    *cursor = SkipSpaces(*cursor);
+    if (**cursor == '-')
+    {
+        return 0U;
+    }
+
+    parsed_value = strtoul(*cursor, &endptr, 10);
+    if ((endptr == *cursor) || (parsed_value > 255UL))
+    {
+        return 0U;
+    }
+
+    *cursor = endptr;
+    *value = (uint8_t)parsed_value;
     return 1U;
 }
 
@@ -277,6 +305,23 @@ static void SendCommandStateReply(const char *command, const char *state, const 
     SendPayloadWithCrc(response);
 }
 
+static void SendSuckCommandReply(const char *state, uint8_t speed_percent)
+{
+    char response[APP_PI_COMM_LINE_SIZE];
+
+    if (state == NULL)
+    {
+        return;
+    }
+
+    (void)snprintf(response,
+                   sizeof(response),
+                   "cmd_suck %s %u",
+                   state,
+                   speed_percent);
+    SendPayloadWithCrc(response);
+}
+
 static void HandlePayload(char *payload)
 {
     char *cursor;
@@ -286,6 +331,7 @@ static void HandlePayload(char *payload)
     float dx_cm;
     float dy_cm;
     float dyaw_deg;
+    uint8_t suck_speed_percent;
     char dx_text[16];
     char dy_text[16];
     char dyaw_text[16];
@@ -343,6 +389,29 @@ static void HandlePayload(char *payload)
         else
         {
             SendCommandStateReply("cmd_turn", "busy", payload + 8U);
+        }
+        return;
+    }
+
+    if (strncmp(payload, "cmd_suck", 8U) == 0)
+    {
+        cursor = payload + 8U;
+        if ((ReadUint8(&cursor, &suck_speed_percent) == 0U) ||
+            (suck_speed_percent > 100U) ||
+            (EnsureLineEnded(cursor) == 0U))
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = BspSuctionMotor_SetSpeedPercent(suck_speed_percent);
+        if (status == HAL_OK)
+        {
+            SendSuckCommandReply("ok", suck_speed_percent);
+        }
+        else
+        {
+            SendSuckCommandReply("busy", suck_speed_percent);
         }
         return;
     }
