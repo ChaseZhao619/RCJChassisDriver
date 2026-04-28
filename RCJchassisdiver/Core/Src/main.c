@@ -28,6 +28,7 @@
 /* USER CODE BEGIN Includes */
 #include "bsp_usart.h"
 #include "bsp_bno085.h"
+#include "bsp_be1732.h"
 #include "bsp_motor.h"
 #include "bsp_suction_motor.h"
 #include "bsp_suction_motor_test.h"
@@ -161,6 +162,7 @@ int main(void)
   MX_USART6_UART_Init();
   MX_I2C1_Init();
   MX_TIM4_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
   if (BspMotor_Init() != HAL_OK)
   {
@@ -169,6 +171,11 @@ int main(void)
   if (BspSuctionMotor_Init() != HAL_OK)
   {
     Error_Handler();
+  }
+  if (BspBe1732_Init() != HAL_OK)
+  {
+    Printf(BSP_USART_6, "BE1732 init failed i2cerr=0x%08lX\r\n",
+           BspBe1732_GetLastI2cError());
   }
   BspSuctionMotorTest_Init();
   AppChassisTask_Init();

@@ -7,6 +7,7 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 - 主控：STM32F407xx。
 - 底盘：4 个 CAN 电机组成的全向/麦轮底盘，支持机体系速度、角度保持和里程计移动。
 - 姿态：BNO085 通过 I2C1 读取 yaw 和 gyro z，用于航向保持和里程计更新。
+- 红外复眼：BE-1732 通过 I2C2 读取 7 路红外光强方向。
 - 电机通信：CAN1 控制底盘电机和功能电机。
 - 吸力电机：TIM4_CH1 输出 PWM，支持 0-100% 速度设置。
 - 串口通信：USART6 接收树莓派命令，USART1 默认用于调试打印。
@@ -29,6 +30,7 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 │       ├── bsp_chassis.c         # 底盘运动学、PID、角度保持
 │       ├── bsp_chassis_odom.c    # 里程计估计和目标点控制
 │       ├── bsp_bno085.c          # BNO085 初始化、报文读取、yaw 计算
+│       ├── bsp_be1732.c          # BE-1732 红外复眼 I2C 读取
 │       ├── bsp_suction_motor.c   # 吸力电机 PWM/油门控制
 │       └── bsp_usart.c           # 串口发送、接收、Printf 封装
 ├── Core/                         # STM32CubeMX 生成和用户主循环代码
@@ -69,6 +71,7 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 | USART6 | PC6 TX, PC7 RX, 115200 8N1 | 树莓派/上位机命令通信 |
 | CAN1 | PA11 RX, PA12 TX | CAN 电机控制和反馈 |
 | I2C1 | PB6 SCL, PB7 SDA, 400 kHz | BNO085 通信 |
+| I2C2 | PB10 SCL, PB11 SDA, 100 kHz | BE-1732 红外复眼 |
 | TIM4_CH1 | PD12, 50 Hz PWM | 吸力电机/电调控制 |
 | BNO_INT2 | PB1 input | BNO085 中断/就绪检测 |
 | BNO_KEY | PE13 input pull-up | yaw 清零按键 |
@@ -118,6 +121,7 @@ openocd -f interface/stlink.cfg -f target/stm32f4x.cfg \
 
 - CAN 总线终端电阻、电机 ID 和供电是否正确。
 - BNO085 的 I2C 地址、INT、NRST、KEY 引脚是否和本工程一致。
+- BE-1732 红外复眼连接到 I2C2，模块地址为 `0x01`。
 - 树莓派串口连接到 USART6，电平为 3.3 V。
 - 调试串口如需查看日志，连接 USART1，波特率 115200。
 
@@ -263,6 +267,60 @@ cmd_request <dx_cm> <dy_cm> <dyaw_deg> <yaw_deg> *<CRC16>
 - `yaw_deg`：当前 yaw，单位度。
 
 第一次查询时，`dx_cm`、`dy_cm`、`dyaw_deg` 返回 0，随后建立增量参考点。
+
+### `cmd_infred`
+
+查询 BE-1732 红外复眼当前模式下最强红外信号所在通道。命令无参数，返回值为 `1-7`。
+
+```text
+cmd_infred *8E0C
+```
+
+回复格式：
+
+```text
+cmd_infred <channel> *<CRC16>
+```
+
+示例：
+
+```text
+cmd_infred 1 *D98F
+cmd_infred 7 *B949
+```
+
+如果 I2C 读取失败：
+
+```text
+cmd_infred busy <status> <i2cerr> *<CRC16>
+```
+
+### `cmd_infred_mode`
+
+切换 BE-1732 红外复眼检测模式。默认使用 `tz` 调制检测模式。
+
+```text
+cmd_infred_mode pt *2597
+cmd_infred_mode tz *089D
+```
+
+参数说明：
+
+- `pt`：普通检测模式，对应手册命令 `13`。
+- `tz`：调制检测模式，对应手册命令 `14`。
+
+成功回复：
+
+```text
+cmd_infred_mode ok pt *F22C
+cmd_infred_mode ok tz *DF26
+```
+
+如果 I2C 切换失败：
+
+```text
+cmd_infred_mode busy <pt|tz> <status> <i2cerr> *<CRC16>
+```
 
 ### `cmd_anglecal`
 

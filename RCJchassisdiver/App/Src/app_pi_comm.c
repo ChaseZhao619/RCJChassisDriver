@@ -1,6 +1,7 @@
 #include "app_pi_comm.h"
 
 #include "app_chassis_task.h"
+#include "bsp_be1732.h"
 #include "bsp_suction_motor.h"
 #include "bsp_usart.h"
 #include "usart.h"
@@ -333,6 +334,9 @@ static void HandlePayload(char *payload)
     float dyaw_deg;
     float request_yaw_deg;
     uint8_t suck_speed_percent;
+    uint8_t infred_channel;
+    BspBe1732Mode infred_mode;
+    const char *infred_mode_arg;
     char dx_text[16];
     char dy_text[16];
     char dyaw_text[16];
@@ -457,6 +461,81 @@ static void HandlePayload(char *payload)
         SendCommandStateReply("cmd_mcureset", "done", "");
         HAL_Delay(20U);
         NVIC_SystemReset();
+        return;
+    }
+
+    if (strncmp(payload, "cmd_infred_mode", 15U) == 0)
+    {
+        cursor = SkipSpaces(payload + 15U);
+        if (strncmp(cursor, "pt", 2U) == 0)
+        {
+            cursor += 2U;
+            infred_mode = BSP_BE1732_MODE_NORMAL;
+            infred_mode_arg = " pt";
+        }
+        else if (strncmp(cursor, "tz", 2U) == 0)
+        {
+            cursor += 2U;
+            infred_mode = BSP_BE1732_MODE_MODULATED;
+            infred_mode_arg = " tz";
+        }
+        else
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        if (EnsureLineEnded(cursor) == 0U)
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = BspBe1732_SetMode(infred_mode);
+        if (status == HAL_OK)
+        {
+            SendCommandStateReply("cmd_infred_mode", "ok", infred_mode_arg);
+        }
+        else
+        {
+            (void)snprintf(response,
+                           sizeof(response),
+                           "cmd_infred_mode busy%s %u %08lX",
+                           infred_mode_arg,
+                           (unsigned int)status,
+                           BspBe1732_GetLastI2cError());
+            SendPayloadWithCrc(response);
+        }
+        return;
+    }
+
+    if (strncmp(payload, "cmd_infred", 10U) == 0)
+    {
+        cursor = payload + 10U;
+        if (EnsureLineEnded(cursor) == 0U)
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = BspBe1732_ReadStrongestChannel(&infred_channel);
+        if (status == HAL_OK)
+        {
+            (void)snprintf(response,
+                           sizeof(response),
+                           "cmd_infred %u",
+                           infred_channel);
+            SendPayloadWithCrc(response);
+        }
+        else
+        {
+            (void)snprintf(response,
+                           sizeof(response),
+                           "cmd_infred busy %u %08lX",
+                           (unsigned int)status,
+                           BspBe1732_GetLastI2cError());
+            SendPayloadWithCrc(response);
+        }
         return;
     }
 
