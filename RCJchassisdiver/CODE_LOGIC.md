@@ -2,6 +2,8 @@
 
 本文档用于说明项目的运行逻辑、模块边界、外设控制方式和主要数据流。README 更偏向项目使用方式；本文更偏向读代码和维护代码时的结构说明。
 
+文档中的图使用 Mermaid 语法；如果 Markdown 预览器不渲染 Mermaid，仍可以阅读图前后的文字说明。
+
 ## 总体分层
 
 项目主要分为三层：
@@ -9,6 +11,49 @@
 - `Core/`：STM32CubeMX 生成的 HAL 初始化代码，包括时钟、GPIO、CAN、I2C、USART、TIM、中断入口等。
 - `Bsp/`：板级外设驱动层，封装电机、底盘、里程计、IMU、红外传感器、吸力电机、串口发送等底层能力。
 - `App/`：应用逻辑层，负责底盘任务状态机和上位机串口协议。
+
+模块关系图：
+
+```mermaid
+flowchart TB
+    Host["上位机 / Raspberry Pi"]
+    AppPi["AppPiComm\n串口协议"]
+    AppChassis["AppChassisTask\n底盘任务状态机"]
+    Core["Core HAL Init\nGPIO/CAN/I2C/USART/TIM"]
+    Usart["BspUsart\nUSART1/USART6"]
+    Motor["BspMotor\nCAN 电机收发"]
+    Chassis["BspChassis\n运动学 + PID"]
+    Odom["BspChassisOdom\n里程计"]
+    Imu["BspBno085\nI2C1 姿态"]
+    Infra["BspBe1732\nI2C2 红外"]
+    Suck["BspSuctionMotor\nTIM4 PWM"]
+    CanBus["CAN1\nC610/C620"]
+    Motors["底盘电机 / 功能电机"]
+    Be1732["BE-1732"]
+    Bno085["BNO085"]
+    Esc["吸力电调"]
+
+    Host <--> AppPi
+    AppPi --> AppChassis
+    AppPi --> Infra
+    AppPi --> Suck
+    AppPi --> Usart
+    AppChassis --> Chassis
+    AppChassis --> Odom
+    Imu --> AppChassis
+    Chassis --> Motor
+    Odom --> Motor
+    Motor <--> CanBus
+    CanBus <--> Motors
+    Infra <--> Be1732
+    Imu <--> Bno085
+    Suck --> Esc
+    Core -.-> Usart
+    Core -.-> Motor
+    Core -.-> Infra
+    Core -.-> Imu
+    Core -.-> Suck
+```
 
 核心执行链路：
 
@@ -63,6 +108,21 @@ main()
 9. 再调用一次 `AppPiComm_Task()`，降低串口命令处理延迟。
 10. `HAL_Delay(MAIN_LOOP_DELAY_MS)`。
 
+主循环调度图：
+
+```mermaid
+flowchart TD
+    Start["while (1) 开始"] --> Comm1["AppPiComm_Task\n处理串口命令"]
+    Comm1 --> ReadImu["Bno085_ReadSensorData\n读取 yaw/gyro"]
+    ReadImu --> ZeroKey["零 yaw 按键去抖\n必要时 Main_ResetYawZero"]
+    ZeroKey --> Valid["判断 yaw/gyro 是否超时"]
+    Valid --> ChassisTask["AppChassisTask_Task\n底盘状态机输出"]
+    ChassisTask --> SuckTest["BspSuctionMotorTest_Task"]
+    SuckTest --> Comm2["AppPiComm_Task\n再次处理串口和 done"]
+    Comm2 --> Delay["HAL_Delay"]
+    Delay --> Start
+```
+
 ## 串口协议逻辑
 
 串口协议在 `App/Src/app_pi_comm.c`，通信口固定为 `USART6`。
@@ -91,6 +151,27 @@ USART6 RX 中断
   -> 按 cmd_xxx 分发
   -> 执行 App/BSP 接口
   -> SendPayloadWithCrc()
+```
+
+串口命令处理图：
+
+```mermaid
+flowchart TD
+    RxInt["USART6 RX 完成中断"] --> Ring["写入 app_pi_rx_ring"]
+    Ring --> Restart["重新启动 1 字节接收"]
+    MainTask["AppPiComm_Task"] --> Pop["从环形缓冲区取字节"]
+    Pop --> Line{"遇到换行?"}
+    Line -- "否" --> Append["追加到 app_pi_line"]
+    Line -- "是" --> Split["ValidateAndSplitCrc"]
+    Split --> CrcOk{"CRC 正确?"}
+    CrcOk -- "否" --> Err["cmd eror / err arg"]
+    CrcOk -- "是" --> Dispatch["按 cmd_xxx 分发"]
+    Dispatch --> AppCmd["调用 AppChassisTask"]
+    Dispatch --> BspCmd["调用 BSP 外设接口"]
+    AppCmd --> Reply["SendPayloadWithCrc"]
+    BspCmd --> Reply
+    Err --> Reply
+    Reply --> Tx["USART6 回复"]
 ```
 
 CRC 使用 CRC16-CCITT，初值 `0xFFFF`，计算范围是 `*` 前面的 payload，不包含空格后的 `*CRC`。
@@ -124,6 +205,35 @@ CRC 使用 CRC16-CCITT，初值 `0xFFFF`，计算范围是 `*` 前面的 payload
 - `APP_CHASSIS_MODE_MOVE`：执行 `cmd_dis` 位移命令。
 - `APP_CHASSIS_MODE_TURN`：执行 `cmd_turn` 转向命令。
 - `APP_CHASSIS_MODE_DKMOTOR`：执行 `cmd_dkmotor` 持续速度控制。
+
+状态机图：
+
+```mermaid
+stateDiagram-v2
+    [*] --> WAIT_IMU
+    WAIT_IMU --> IDLE: yaw 有效 / 初始化里程计
+    IDLE --> WAIT_IMU: yaw 超时
+    MOVE --> WAIT_IMU: yaw 超时
+    TURN --> WAIT_IMU: yaw 超时
+    DKMOTOR --> WAIT_IMU: yaw 超时
+
+    IDLE --> MOVE: cmd_dis
+    IDLE --> TURN: cmd_turn
+    IDLE --> DKMOTOR: cmd_dkmotor speed>0
+
+    MOVE --> IDLE: 到达目标 / done
+    TURN --> IDLE: 角度到达且稳定 / done
+    DKMOTOR --> IDLE: cmd_juststop 或 speed=0
+
+    MOVE --> TURN: cmd_turn 打断
+    TURN --> MOVE: cmd_dis 打断
+    MOVE --> DKMOTOR: cmd_dkmotor 打断
+    TURN --> DKMOTOR: cmd_dkmotor 打断
+    DKMOTOR --> MOVE: cmd_dis 打断
+    DKMOTOR --> TURN: cmd_turn 打断
+
+    IDLE --> IDLE: HoldTargetYaw
+```
 
 任务入口：
 
@@ -187,6 +297,20 @@ motor4 = -forward - left - ccw
   -> BspMotor_SendChassisCurrents()
 ```
 
+轮速闭环数据图：
+
+```mermaid
+flowchart LR
+    Cmd["目标速度\nforward/left/ccw"] --> Mix["四轮运动学\n目标 rpm"]
+    Mix --> Pid["每轮速度 PID\nKP/KI/KD + KF"]
+    Feedback["CAN 反馈 speed_rpm"] --> Dir["反馈方向修正"]
+    Dir --> Pid
+    Pid --> Limit["电流限幅"]
+    Limit --> CanTx["CAN 控制帧\n0x200"]
+    CanTx --> Esc["电调"]
+    Esc --> Feedback
+```
+
 转向环：
 
 - 目标 yaw 与当前 yaw 先计算最短角度误差。
@@ -220,6 +344,19 @@ motor rpm
   -> x/y 积分
 ```
 
+里程计计算图：
+
+```mermaid
+flowchart TD
+    Fb["四轮 CAN 速度反馈"] --> Logical["按 BSP_CHASSIS_MOTORx_FB_DIR\n修正方向"]
+    Logical --> Body["反解车体速度\nforward/left"]
+    Body --> MmS["rpm -> mm/s\n比例修正"]
+    Yaw["BNO085 yaw"] --> World["车体坐标 -> 世界坐标"]
+    MmS --> World
+    World --> Integrate["按 dt 积分 x/y"]
+    Integrate --> Pose["BspChassisOdomPose"]
+```
+
 坐标约定：
 
 - `x_mm/y_mm` 是世界坐标位置。
@@ -249,6 +386,23 @@ CAN ID 约定：
 - 根据编码器跨圈变化维护 `round_count` 和 `total_ecd`。
 - `BspMotor_IsOnline()` 根据反馈更新时间判断电机在线状态。
 
+CAN 控制和反馈图：
+
+```mermaid
+flowchart LR
+    Current["底盘/功能电流目标"] --> Pack["PackCurrent\n打包 8 字节"]
+    Pack --> TxId{"控制帧 ID"}
+    TxId -->|"底盘 1-4"| Id200["0x200"]
+    TxId -->|"功能电机 5"| Id1FF["0x1FF"]
+    Id200 --> Can["CAN1"]
+    Id1FF --> Can
+    Can --> Esc["电调"]
+    Esc --> Fb["反馈帧 0x201-0x205"]
+    Fb --> Irq["CAN1_RX0_IRQHandler"]
+    Irq --> Decode["DecodeMotorFeedback"]
+    Decode --> Cache["motor_feedback[]"]
+```
+
 ## BNO085 IMU 逻辑
 
 BNO085 驱动在 `Bsp/Src/bsp_bno085.c`，使用 I2C1。
@@ -271,6 +425,21 @@ yaw 归零：
 - 物理按键触发时，主循环调用 `Main_ResetYawZero()`。
 - 串口 `cmd_anglecal` 也调用同一个函数。
 - 归零后会更新 BNO085 yaw 零点，并通知底盘任务重置目标 yaw 和里程计。
+
+BNO085 到底盘转向环图：
+
+```mermaid
+flowchart LR
+    BNO["BNO085"] --> I2C1["I2C1"]
+    I2C1 --> Read["Bno085_ReadSensorData"]
+    Read --> Yaw["yaw_deg"]
+    Read --> Gyro["gyro_z_deg_s"]
+    Yaw --> Task["AppChassisTask_Task"]
+    Gyro --> Task
+    Task --> AnglePid["BspChassis_CalcAngleSpeedGyro"]
+    AnglePid --> Ccw["ccw_rpm"]
+    Ccw --> Wheel["四轮目标速度叠加旋转量"]
+```
 
 ## BE-1732 红外传感器逻辑
 
@@ -297,6 +466,23 @@ BE-1732 驱动在 `Bsp/Src/bsp_be1732.c`，使用 I2C2。
 
 失败时协议会返回 HAL 状态和 I2C 错误码，便于现场排查。
 
+BE-1732 读取流程图：
+
+```mermaid
+flowchart TD
+    Cmd["cmd_infred"] --> ReadStrong["ReadStrongestChannel"]
+    ReadStrong --> Direct["读取最强通道命令"]
+    Direct --> Valid{"返回 1-7?"}
+    Valid -- "是" --> Reply["回复通道号"]
+    Valid -- "否" --> Scan["逐通道读取 1-7"]
+    Scan --> Max["比较最大红外值"]
+    Max --> Reply
+    Direct --> Fail{"I2C 失败?"}
+    Fail -- "busy" --> Recover["恢复 I2C2 总线"]
+    Recover --> ReplyBusy["回复 busy 状态和 i2cerr"]
+    Fail -- "其他错误" --> ReplyBusy
+```
+
 ## 吸力电机逻辑
 
 吸力电机驱动在 `Bsp/Src/bsp_suction_motor.c`，使用 TIM4 CH1 PWM。
@@ -315,6 +501,18 @@ cmd_suck speed
   -> AppPiComm
   -> BspSuctionMotor_SetSpeedPercent()
   -> __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, pulse_us)
+```
+
+吸力电机映射图：
+
+```mermaid
+flowchart LR
+    Cmd["cmd_suck speed"] --> Check{"speed=0?"}
+    Check -- "是" --> Init["1000 us 初始化脉宽"]
+    Check -- "否" --> Map["1-100 映射到\n1050-2000 us"]
+    Init --> Pwm["TIM4 CH1 PWM"]
+    Map --> Pwm
+    Pwm --> Esc["吸力电调"]
 ```
 
 ## USART 逻辑
@@ -345,6 +543,30 @@ cmd_suck speed
   -> BspMotor_SendChassisCurrents()
   -> CAN1
   -> 电调/电机
+```
+
+```mermaid
+sequenceDiagram
+    participant Host as 上位机
+    participant Comm as AppPiComm
+    participant Task as AppChassisTask
+    participant Chassis as BspChassis
+    participant Motor as BspMotor
+    participant CAN as CAN1/电调
+
+    Host->>Comm: cmd_dis / cmd_turn / cmd_dkmotor *CRC
+    Comm->>Comm: 校验 CRC / 解析参数
+    Comm->>Task: CommandXxx()
+    Task-->>Comm: HAL_OK / HAL_BUSY
+    Comm-->>Host: ok / busy *CRC
+    loop 主循环
+        Task->>Chassis: SetBodySpeed...()
+        Chassis->>Motor: SendChassisCurrents()
+        Motor->>CAN: CAN 控制帧
+        CAN-->>Motor: 电机反馈帧
+    end
+    Task-->>Comm: done event, 仅 cmd_dis/cmd_turn
+    Comm-->>Host: done *CRC
 ```
 
 ### 电机反馈到控制闭环
@@ -394,6 +616,32 @@ USART6: cmd_infred *CRC
 - I2C 传感器读取。
 - 底盘运动状态机。
 - 吸力电机测试任务。
+
+调度关系图：
+
+```mermaid
+flowchart TB
+    subgraph IRQ["中断上下文"]
+        UartIrq["USART6 RX\n存环形缓冲区"]
+        CanIrq["CAN RX FIFO0\n更新电机反馈"]
+        HalIrq["I2C/USART/CAN HAL IRQ"]
+    end
+
+    subgraph Main["主循环上下文"]
+        CommTask["AppPiComm_Task\n命令解析/回复"]
+        ImuTask["Bno085_ReadSensorData"]
+        ChassisTask["AppChassisTask_Task"]
+        SuckTask["BspSuctionMotorTest_Task"]
+        MotorCache["motor_feedback[]\n电机反馈缓存"]
+    end
+
+    UartIrq --> CommTask
+    CanIrq --> MotorCache
+    MotorCache --> ChassisTask
+    ImuTask --> ChassisTask
+    CommTask --> ChassisTask
+    CommTask --> SuckTask
+```
 
 ## 维护注意点
 
