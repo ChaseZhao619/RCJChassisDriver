@@ -259,6 +259,22 @@ cmd_dkmotor busy 50 90 1 *684C
 err arg *....
 ```
 
+### `cmd_juststop`
+
+停止当前持续运动，但不关闭底盘运动功能，仍然保持转向环。主要用于 `cmd_dkmotor` 持续运动过程中停车并保持航向。
+
+```text
+cmd_juststop *C3E4
+```
+
+可能回复：
+
+```text
+cmd_juststop ok *E3CE
+cmd_juststop busy *AE33
+err arg *....
+```
+
 ### `cmd_suck`
 
 设置吸力电机速度百分比，范围 0-100。

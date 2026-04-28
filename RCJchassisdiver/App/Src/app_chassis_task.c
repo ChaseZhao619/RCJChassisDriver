@@ -398,6 +398,22 @@ uint8_t AppChassisTask_IsMotionEnabled(void)
     return app_motion_enabled;
 }
 
+HAL_StatusTypeDef AppChassisTask_CommandJustStop(void)
+{
+    if ((app_motion_enabled == 0U) || (app_odom_ready == 0U))
+    {
+        return HAL_BUSY;
+    }
+
+    app_active_command = APP_CHASSIS_TASK_DONE_NONE;
+    app_done_event = APP_CHASSIS_TASK_DONE_NONE;
+    app_move_reached = 0U;
+    app_dkmotor_speed_rpm = 0.0f;
+    SetMode(APP_CHASSIS_MODE_IDLE);
+
+    return HAL_OK;
+}
+
 HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm, float y_cm)
 {
     const BspChassisOdomPose *pose;

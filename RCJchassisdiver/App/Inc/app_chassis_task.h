@@ -94,6 +94,7 @@ typedef enum
 void AppChassisTask_Init(void);
 HAL_StatusTypeDef AppChassisTask_SetMotionEnabled(uint8_t enabled);
 uint8_t AppChassisTask_IsMotionEnabled(void);
+HAL_StatusTypeDef AppChassisTask_CommandJustStop(void);
 HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm, float y_cm);
 HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg);
 HAL_StatusTypeDef AppChassisTask_CommandDkMotor(uint8_t speed_percent,

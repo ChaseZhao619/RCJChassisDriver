@@ -440,6 +440,27 @@ static void HandlePayload(char *payload)
         return;
     }
 
+    if (strncmp(payload, "cmd_juststop", 12U) == 0)
+    {
+        cursor = payload + 12U;
+        if (EnsureLineEnded(cursor) == 0U)
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = AppChassisTask_CommandJustStop();
+        if (status == HAL_OK)
+        {
+            SendCommandStateReply("cmd_juststop", "ok", "");
+        }
+        else
+        {
+            SendCommandStateReply("cmd_juststop", "busy", "");
+        }
+        return;
+    }
+
     if (strncmp(payload, "cmd_suck", 8U) == 0)
     {
         cursor = payload + 8U;
