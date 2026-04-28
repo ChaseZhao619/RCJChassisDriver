@@ -11,6 +11,7 @@ typedef enum
     APP_CHASSIS_MODE_IDLE,
     APP_CHASSIS_MODE_MOVE,
     APP_CHASSIS_MODE_TURN,
+    APP_CHASSIS_MODE_DKMOTOR,
 } AppChassisMode;
 
 static AppChassisMode app_mode;
@@ -31,6 +32,9 @@ static float app_request_last_y_mm;
 static float app_request_last_yaw_deg;
 static uint8_t app_request_last_valid;
 static uint8_t app_motion_enabled;
+static float app_dkmotor_speed_rpm;
+static float app_dkmotor_angle_deg;
+static uint8_t app_dkmotor_head_lock;
 
 static const float app_pi = 3.14159265358979323846f;
 
@@ -287,6 +291,40 @@ static HAL_StatusTypeDef HoldTargetYaw(float yaw_deg, float gyro_z_deg_s)
                                                 BSP_CHASSIS_ODOM_MAX_CURRENT);
 }
 
+static HAL_StatusTypeDef DriveDkMotor(float yaw_deg, float gyro_z_deg_s)
+{
+    if (app_dkmotor_speed_rpm <= 0.01f)
+    {
+        return BspChassis_Stop();
+    }
+
+    if (app_dkmotor_head_lock != 0U)
+    {
+        return BspChassis_SetPolarSpeedAngleHold(app_dkmotor_angle_deg,
+                                                 app_dkmotor_speed_rpm,
+                                                 app_target_yaw_deg,
+                                                 yaw_deg,
+                                                 BSP_CHASSIS_ODOM_MAX_CURRENT);
+    }
+
+    if (IsYawAtTarget(app_target_yaw_deg, yaw_deg) == 0U)
+    {
+        return BspChassis_SetBodySpeedAngleHoldGyro(0.0f,
+                                                    0.0f,
+                                                    app_target_yaw_deg,
+                                                    yaw_deg,
+                                                    gyro_z_deg_s,
+                                                    BSP_CHASSIS_ODOM_MAX_CURRENT);
+    }
+
+    return BspChassis_SetBodySpeedAngleHoldGyro(app_dkmotor_speed_rpm,
+                                                0.0f,
+                                                app_target_yaw_deg,
+                                                yaw_deg,
+                                                gyro_z_deg_s,
+                                                BSP_CHASSIS_ODOM_MAX_CURRENT);
+}
+
 static void HoldReachedMove(uint32_t now, float yaw_deg, float gyro_z_deg_s)
 {
     (void)HoldTargetYaw(yaw_deg, gyro_z_deg_s);
@@ -328,6 +366,9 @@ void AppChassisTask_Init(void)
     app_request_last_yaw_deg = 0.0f;
     app_request_last_valid = 0U;
     app_motion_enabled = 1U;
+    app_dkmotor_speed_rpm = 0.0f;
+    app_dkmotor_angle_deg = 0.0f;
+    app_dkmotor_head_lock = 1U;
     (void)BspChassis_Stop();
 }
 
@@ -340,6 +381,7 @@ HAL_StatusTypeDef AppChassisTask_SetMotionEnabled(uint8_t enabled)
         app_active_command = APP_CHASSIS_TASK_DONE_NONE;
         app_done_event = APP_CHASSIS_TASK_DONE_NONE;
         app_move_reached = 0U;
+        app_dkmotor_speed_rpm = 0.0f;
         SetMode(APP_CHASSIS_MODE_IDLE);
         (void)BspChassis_Stop();
     }
@@ -391,6 +433,43 @@ HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg)
     app_done_event = APP_CHASSIS_TASK_DONE_NONE;
     app_active_command = APP_CHASSIS_TASK_DONE_TURN;
     SetMode(APP_CHASSIS_MODE_TURN);
+
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef AppChassisTask_CommandDkMotor(uint8_t speed_percent,
+                                                float move_angle_deg,
+                                                uint8_t head_lock)
+{
+    const BspChassisOdomPose *pose;
+    float speed_mm_s;
+
+    if ((app_motion_enabled == 0U) || (app_odom_ready == 0U) || (speed_percent > 100U))
+    {
+        return HAL_BUSY;
+    }
+
+    app_done_event = APP_CHASSIS_TASK_DONE_NONE;
+    app_active_command = APP_CHASSIS_TASK_DONE_NONE;
+    app_move_reached = 0U;
+    app_dkmotor_head_lock = (head_lock != 0U) ? 1U : 0U;
+    app_dkmotor_angle_deg = BspChassis_WrapAngle360(move_angle_deg);
+
+    if (speed_percent == 0U)
+    {
+        app_dkmotor_speed_rpm = 0.0f;
+        SetMode(APP_CHASSIS_MODE_IDLE);
+        (void)BspChassis_Stop();
+        return HAL_OK;
+    }
+
+    pose = BspChassisOdom_GetPose();
+    speed_mm_s = ((float)speed_percent * APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S) / 100.0f;
+    app_dkmotor_speed_rpm = BspChassisOdom_MmSToMotorRpm(speed_mm_s);
+    app_target_yaw_deg = (app_dkmotor_head_lock != 0U) ?
+                         pose->yaw_deg :
+                         app_dkmotor_angle_deg;
+    SetMode(APP_CHASSIS_MODE_DKMOTOR);
 
     return HAL_OK;
 }
@@ -551,6 +630,10 @@ void AppChassisTask_Task(uint8_t yaw_valid,
         {
             (void)HoldTargetYaw(yaw_deg, gyro_z_deg_s);
         }
+        break;
+
+    case APP_CHASSIS_MODE_DKMOTOR:
+        (void)DriveDkMotor(yaw_deg, gyro_z_deg_s);
         break;
 
     case APP_CHASSIS_MODE_WAIT_IMU:

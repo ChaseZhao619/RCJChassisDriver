@@ -334,6 +334,8 @@ static void HandlePayload(char *payload)
     float dyaw_deg;
     float request_yaw_deg;
     uint8_t suck_speed_percent;
+    uint8_t dkmotor_speed_percent;
+    uint8_t dkmotor_head_lock;
     uint8_t infred_channel;
     uint8_t conmotion_enabled;
     BspBe1732Mode infred_mode;
@@ -396,6 +398,44 @@ static void HandlePayload(char *payload)
         else
         {
             SendCommandStateReply("cmd_turn", "busy", payload + 8U);
+        }
+        return;
+    }
+
+    if (strncmp(payload, "cmd_dkmotor", 11U) == 0)
+    {
+        cursor = payload + 11U;
+        dkmotor_head_lock = 1U;
+        if ((ReadUint8(&cursor, &dkmotor_speed_percent) == 0U) ||
+            (dkmotor_speed_percent > 100U) ||
+            (ReadFloat(&cursor, &yaw_deg) == 0U))
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        cursor = SkipSpaces(cursor);
+        if (*cursor != '\0')
+        {
+            if ((ReadUint8(&cursor, &dkmotor_head_lock) == 0U) ||
+                (dkmotor_head_lock > 1U) ||
+                (EnsureLineEnded(cursor) == 0U))
+            {
+                SendPayloadWithCrc("err arg");
+                return;
+            }
+        }
+
+        status = AppChassisTask_CommandDkMotor(dkmotor_speed_percent,
+                                               yaw_deg,
+                                               dkmotor_head_lock);
+        if (status == HAL_OK)
+        {
+            SendCommandStateReply("cmd_dkmotor", "ok", payload + 11U);
+        }
+        else
+        {
+            SendCommandStateReply("cmd_dkmotor", "busy", payload + 11U);
         }
         return;
     }

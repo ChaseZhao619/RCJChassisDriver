@@ -87,11 +87,18 @@ typedef enum
 #define APP_CHASSIS_TASK_MIN_SPEED_DISTANCE_MM  220.0f
 #endif
 
+#ifndef APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S
+#define APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S 650.0f
+#endif
+
 void AppChassisTask_Init(void);
 HAL_StatusTypeDef AppChassisTask_SetMotionEnabled(uint8_t enabled);
 uint8_t AppChassisTask_IsMotionEnabled(void);
 HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm, float y_cm);
 HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg);
+HAL_StatusTypeDef AppChassisTask_CommandDkMotor(uint8_t speed_percent,
+                                                float move_angle_deg,
+                                                uint8_t head_lock);
 HAL_StatusTypeDef AppChassisTask_GetRequestDelta(float *dx_cm,
                                                  float *dy_cm,
                                                  float *dyaw_deg,

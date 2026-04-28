@@ -223,6 +223,42 @@ cmd_turn done 90 *....
 err arg *....
 ```
 
+### `cmd_dkmotor`
+
+进入底盘持续速度控制模式。该模式不做加减速规划，只使用轮速闭环；需要停止时发送速度 `0`。
+
+```text
+cmd_dkmotor <speed_percent> <move_angle_deg> [head_lock] *<CRC16>
+```
+
+参数说明：
+
+- `speed_percent`：速度映射值，范围 `0-100`。当前 `100` 对应 `APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S`，默认 `650 mm/s`。
+- `move_angle_deg`：运动角度，单位度，`0` 为小车前方，`90` 为小车左方。
+- `head_lock`：锁头使能，可省略，默认 `1`。`1` 表示保持当前车头方向不变，按运动角度整体平移；`0` 表示先转到对应角度，再朝小车前方直行。
+
+示例：
+
+```text
+cmd_dkmotor 50 0 *277A
+cmd_dkmotor 50 90 *A24E
+cmd_dkmotor 50 0 1 *6038
+cmd_dkmotor 50 90 1 *F282
+cmd_dkmotor 50 90 0 *E2A3
+cmd_dkmotor 0 0 *F332
+```
+
+可能回复：
+
+```text
+cmd_dkmotor ok 50 0 *077E
+cmd_dkmotor ok 50 90 *822C
+cmd_dkmotor ok 50 0 1 *265A
+cmd_dkmotor ok 50 90 1 *B880
+cmd_dkmotor busy 50 90 1 *684C
+err arg *....
+```
+
 ### `cmd_suck`
 
 设置吸力电机速度百分比，范围 0-100。
