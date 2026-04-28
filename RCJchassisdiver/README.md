@@ -245,6 +245,34 @@ cmd_suck busy 50 *....
 err arg *....
 ```
 
+### `cmd_conmotion`
+
+控制底盘运动功能使能。该开关会影响 `cmd_dis`、`cmd_turn` 以及空闲状态下默认的转向环/角度保持输出。
+
+```text
+cmd_conmotion <0|1> *<CRC16>
+```
+
+示例：
+
+```text
+cmd_conmotion 0 *6732
+cmd_conmotion 1 *7713
+```
+
+说明：
+
+- `0`：失能底盘运动，立即停止底盘电机，并关闭默认转向环输出。
+- `1`：使能底盘运动，允许 `cmd_dis`、`cmd_turn` 和空闲角度保持继续工作。
+
+可能回复：
+
+```text
+cmd_conmotion ok 0 *87F6
+cmd_conmotion ok 1 *97D7
+err arg *....
+```
+
 ### `cmd_request`
 
 查询自上一次 `cmd_request` 以来的里程计增量和当前 yaw。

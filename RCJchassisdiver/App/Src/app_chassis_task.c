@@ -30,6 +30,7 @@ static float app_request_last_x_mm;
 static float app_request_last_y_mm;
 static float app_request_last_yaw_deg;
 static uint8_t app_request_last_valid;
+static uint8_t app_motion_enabled;
 
 static const float app_pi = 3.14159265358979323846f;
 
@@ -326,14 +327,40 @@ void AppChassisTask_Init(void)
     app_request_last_y_mm = 0.0f;
     app_request_last_yaw_deg = 0.0f;
     app_request_last_valid = 0U;
+    app_motion_enabled = 1U;
     (void)BspChassis_Stop();
+}
+
+HAL_StatusTypeDef AppChassisTask_SetMotionEnabled(uint8_t enabled)
+{
+    app_motion_enabled = (enabled != 0U) ? 1U : 0U;
+
+    if (app_motion_enabled == 0U)
+    {
+        app_active_command = APP_CHASSIS_TASK_DONE_NONE;
+        app_done_event = APP_CHASSIS_TASK_DONE_NONE;
+        app_move_reached = 0U;
+        SetMode(APP_CHASSIS_MODE_IDLE);
+        (void)BspChassis_Stop();
+    }
+    else
+    {
+        BspChassis_ResetPid();
+    }
+
+    return HAL_OK;
+}
+
+uint8_t AppChassisTask_IsMotionEnabled(void)
+{
+    return app_motion_enabled;
 }
 
 HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm, float y_cm)
 {
     const BspChassisOdomPose *pose;
 
-    if (app_odom_ready == 0U)
+    if ((app_motion_enabled == 0U) || (app_odom_ready == 0U))
     {
         return HAL_BUSY;
     }
@@ -354,7 +381,7 @@ HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm, float y_cm)
 
 HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg)
 {
-    if (app_odom_ready == 0U)
+    if ((app_motion_enabled == 0U) || (app_odom_ready == 0U))
     {
         return HAL_BUSY;
     }
@@ -478,6 +505,18 @@ void AppChassisTask_Task(uint8_t yaw_valid,
         BspChassisOdom_Update(yaw_deg);
     }
     pose = BspChassisOdom_GetPose();
+
+    if (app_motion_enabled == 0U)
+    {
+        app_active_command = APP_CHASSIS_TASK_DONE_NONE;
+        app_move_reached = 0U;
+        if (app_mode != APP_CHASSIS_MODE_IDLE)
+        {
+            SetMode(APP_CHASSIS_MODE_IDLE);
+        }
+        (void)BspChassis_Stop();
+        return;
+    }
 
     switch (app_mode)
     {

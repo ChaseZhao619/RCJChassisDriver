@@ -335,6 +335,7 @@ static void HandlePayload(char *payload)
     float request_yaw_deg;
     uint8_t suck_speed_percent;
     uint8_t infred_channel;
+    uint8_t conmotion_enabled;
     BspBe1732Mode infred_mode;
     const char *infred_mode_arg;
     char dx_text[16];
@@ -418,6 +419,29 @@ static void HandlePayload(char *payload)
         else
         {
             SendSuckCommandReply("busy", suck_speed_percent);
+        }
+        return;
+    }
+
+    if (strncmp(payload, "cmd_conmotion", 13U) == 0)
+    {
+        cursor = payload + 13U;
+        if ((ReadUint8(&cursor, &conmotion_enabled) == 0U) ||
+            (conmotion_enabled > 1U) ||
+            (EnsureLineEnded(cursor) == 0U))
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = AppChassisTask_SetMotionEnabled(conmotion_enabled);
+        if (status == HAL_OK)
+        {
+            SendCommandStateReply("cmd_conmotion", "ok", (conmotion_enabled != 0U) ? " 1" : " 0");
+        }
+        else
+        {
+            SendCommandStateReply("cmd_conmotion", "busy", (conmotion_enabled != 0U) ? " 1" : " 0");
         }
         return;
     }
