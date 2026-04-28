@@ -29,6 +29,7 @@
 #include "bsp_usart.h"
 #include "bsp_bno085.h"
 #include "bsp_be1732.h"
+#include "bsp_dct.h"
 #include "bsp_motor.h"
 #include "bsp_suction_motor.h"
 #include "bsp_suction_motor_test.h"
@@ -176,6 +177,10 @@ int main(void)
   {
     Printf(BSP_USART_6, "BE1732 init failed i2cerr=0x%08lX\r\n",
            BspBe1732_GetLastI2cError());
+  }
+  if (BspDct_Init() != HAL_OK)
+  {
+    Error_Handler();
   }
   BspSuctionMotorTest_Init();
   AppChassisTask_Init();

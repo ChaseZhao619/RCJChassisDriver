@@ -27,6 +27,7 @@ flowchart TB
     Imu["BspBno085\nI2C1 姿态"]
     Infra["BspBe1732\nI2C2 红外"]
     Suck["BspSuctionMotor\nTIM4 PWM"]
+    Dct["BspDct\nPD0/JD1 继电器"]
     CanBus["CAN1\nC610/C620"]
     Motors["底盘电机 / 功能电机"]
     Be1732["BE-1732"]
@@ -37,6 +38,7 @@ flowchart TB
     AppPi --> AppChassis
     AppPi --> Infra
     AppPi --> Suck
+    AppPi --> Dct
     AppPi --> Usart
     AppChassis --> Chassis
     AppChassis --> Odom
@@ -48,11 +50,13 @@ flowchart TB
     Infra <--> Be1732
     Imu <--> Bno085
     Suck --> Esc
+    Dct --> Relay["继电器"]
     Core -.-> Usart
     Core -.-> Motor
     Core -.-> Infra
     Core -.-> Imu
     Core -.-> Suck
+    Core -.-> Dct
 ```
 
 核心执行链路：
@@ -63,6 +67,7 @@ main()
   -> BspMotor_Init()
   -> BspSuctionMotor_Init()
   -> BspBe1732_Init()
+  -> BspDct_Init()
   -> AppChassisTask_Init()
   -> AppPiComm_Init()
   -> Bno085_Init() / Bno085_EnableDefaultReports()
@@ -91,6 +96,7 @@ main()
 - `BspMotor_Init()`：配置 CAN 滤波器、启动 CAN、打开 FIFO0 接收中断。
 - `BspSuctionMotor_Init()`：启动 TIM4 CH1 PWM，并输出初始化脉宽。
 - `BspBe1732_Init()`：恢复 I2C2 总线、检查设备、默认切换到调制检测模式。
+- `BspDct_Init()`：关闭 PD0/JD1 继电器输出。
 - `AppChassisTask_Init()`：初始化底盘任务状态机。
 - `AppPiComm_Init()`：启动 USART6 单字节中断接收。
 - `Bno085_Init()`：初始化 BNO085，并开启默认姿态/陀螺仪报告。
@@ -184,6 +190,7 @@ CRC 使用 CRC16-CCITT，初值 `0xFFFF`，计算范围是 `*` 前面的 payload
 - `cmd_juststop`：停止持续运动，但保持转向环。
 - `cmd_conmotion 0/1`：禁用/使能底盘运动功能。
 - `cmd_suck speed`：设置吸力电机速度百分比。
+- `cmd_dct 0/1`：控制 PD0/JD1 继电器输出。
 - `cmd_anglecal`：执行 yaw 归零，功能等同按键。
 - `cmd_mcureset`：回复后复位 MCU。
 - `cmd_infred`：读取 BE-1732 当前最强红外通道。
@@ -515,6 +522,38 @@ flowchart LR
     Pwm --> Esc["吸力电调"]
 ```
 
+## 继电器逻辑
+
+继电器接口在 `Bsp/Src/bsp_dct.c`，使用 PD0/JD1 普通 GPIO 输出。
+
+控制方式：
+
+- `BspDct_Init()` 默认关闭继电器。
+- `cmd_dct 0` 调用 `BspDct_SetEnabled(0)`，PD0 输出低电平。
+- `cmd_dct 1` 调用 `BspDct_SetEnabled(1)`，PD0 输出高电平。
+- `BspDct_GetEnabled()` 返回软件缓存的继电器状态。
+
+数据流：
+
+```text
+cmd_dct 0/1
+  -> AppPiComm
+  -> BspDct_SetEnabled()
+  -> HAL_GPIO_WritePin(JD1_GPIO_Port, JD1_Pin, ...)
+  -> PD0/JD1 继电器接口
+```
+
+继电器控制图：
+
+```mermaid
+flowchart LR
+    Cmd["cmd_dct 0/1"] --> Parse["AppPiComm\n解析参数"]
+    Parse --> Set["BspDct_SetEnabled"]
+    Set --> Gpio["HAL_GPIO_WritePin\nPD0/JD1"]
+    Gpio --> Relay["继电器"]
+    Set --> State["dct_enabled 状态缓存"]
+```
+
 ## USART 逻辑
 
 串口 BSP 在 `Bsp/Src/bsp_usart.c`。
@@ -616,6 +655,7 @@ USART6: cmd_infred *CRC
 - I2C 传感器读取。
 - 底盘运动状态机。
 - 吸力电机测试任务。
+- 继电器等 GPIO 输出控制命令。
 
 调度关系图：
 

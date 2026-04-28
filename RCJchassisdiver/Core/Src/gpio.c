@@ -55,6 +55,9 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(BNO_NRST_GPIO_Port, BNO_NRST_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(JD1_GPIO_Port, JD1_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pin : BNO_INT2_Pin */
   GPIO_InitStruct.Pin = BNO_INT2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
@@ -73,6 +76,13 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(BNO_NRST_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : JD1_Pin */
+  GPIO_InitStruct.Pin = JD1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(JD1_GPIO_Port, &GPIO_InitStruct);
 
 }
 

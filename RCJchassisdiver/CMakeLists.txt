@@ -49,6 +49,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Bsp/Src/bsp_usart.c
     Bsp/Src/bsp_bno085.c
     Bsp/Src/bsp_be1732.c
+    Bsp/Src/bsp_dct.c
     Bsp/Src/bsp_motor.c
     Bsp/Src/bsp_motor_test.c
     Bsp/Src/bsp_suction_motor.c

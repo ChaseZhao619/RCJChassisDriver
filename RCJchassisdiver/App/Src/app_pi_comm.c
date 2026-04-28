@@ -2,6 +2,7 @@
 
 #include "app_chassis_task.h"
 #include "bsp_be1732.h"
+#include "bsp_dct.h"
 #include "bsp_suction_motor.h"
 #include "bsp_usart.h"
 #include "usart.h"
@@ -334,6 +335,7 @@ static void HandlePayload(char *payload)
     float dyaw_deg;
     float request_yaw_deg;
     uint8_t suck_speed_percent;
+    uint8_t dct_enabled;
     uint8_t dkmotor_speed_percent;
     uint8_t dkmotor_head_lock;
     uint8_t infred_channel;
@@ -480,6 +482,29 @@ static void HandlePayload(char *payload)
         else
         {
             SendSuckCommandReply("busy", suck_speed_percent);
+        }
+        return;
+    }
+
+    if (strncmp(payload, "cmd_dct", 7U) == 0)
+    {
+        cursor = payload + 7U;
+        if ((ReadUint8(&cursor, &dct_enabled) == 0U) ||
+            (dct_enabled > 1U) ||
+            (EnsureLineEnded(cursor) == 0U))
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = BspDct_SetEnabled(dct_enabled);
+        if (status == HAL_OK)
+        {
+            SendCommandStateReply("cmd_dct", "ok", (dct_enabled != 0U) ? " 1" : " 0");
+        }
+        else
+        {
+            SendCommandStateReply("cmd_dct", "busy", (dct_enabled != 0U) ? " 1" : " 0");
         }
         return;
     }
