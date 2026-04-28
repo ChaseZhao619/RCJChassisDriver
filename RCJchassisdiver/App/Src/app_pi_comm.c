@@ -418,6 +418,48 @@ static void HandlePayload(char *payload)
         return;
     }
 
+    if (strncmp(payload, "cmd_anglecal", 12U) == 0)
+    {
+        cursor = payload + 12U;
+        if (EnsureLineEnded(cursor) == 0U)
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = Main_ResetYawZero();
+        if (status == HAL_OK)
+        {
+            SendCommandStateReply("cmd_anglecal", "ok", "");
+            SendCommandStateReply("cmd_anglecal", "done", "");
+        }
+        else if (status == HAL_BUSY)
+        {
+            SendCommandStateReply("cmd_anglecal", "busy", "");
+        }
+        else
+        {
+            SendPayloadWithCrc("cmd_anglecal eror");
+        }
+        return;
+    }
+
+    if (strncmp(payload, "cmd_mcureset", 12U) == 0)
+    {
+        cursor = payload + 12U;
+        if (EnsureLineEnded(cursor) == 0U)
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        SendCommandStateReply("cmd_mcureset", "ok", "");
+        SendCommandStateReply("cmd_mcureset", "done", "");
+        HAL_Delay(20U);
+        NVIC_SystemReset();
+        return;
+    }
+
     if (strncmp(payload, "cmd_request", 11U) == 0)
     {
         cursor = payload + 11U;

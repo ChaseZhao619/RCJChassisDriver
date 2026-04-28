@@ -53,6 +53,7 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+HAL_StatusTypeDef Main_ResetYawZero(void);
 
 /* USER CODE END EFP */
 

@@ -99,6 +99,31 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+HAL_StatusTypeDef Main_ResetYawZero(void)
+{
+  uint32_t now = HAL_GetTick();
+
+  if (bno085_rotation_valid == 0U)
+  {
+    return HAL_BUSY;
+  }
+
+  if (Bno085_SetYawZero(&bno085_rotation_vector) != HAL_OK)
+  {
+    return HAL_ERROR;
+  }
+
+  if (Bno085_GetYawDegrees(&bno085_rotation_vector, &bno085_yaw_deg) != HAL_OK)
+  {
+    return HAL_ERROR;
+  }
+
+  bno085_yaw_update_tick = now;
+  AppChassisTask_OnYawZero(bno085_yaw_deg);
+  Printf(MAIN_DEBUG_USART, "imu_zero:1\n");
+
+  return HAL_OK;
+}
 
 /* USER CODE END 0 */
 
@@ -260,15 +285,9 @@ int main(void)
             (bno085_zero_key_handled == 0U) &&
             (bno085_rotation_valid != 0U))
         {
-          if (Bno085_SetYawZero(&bno085_rotation_vector) == HAL_OK)
+          if (Main_ResetYawZero() == HAL_OK)
           {
-            if (Bno085_GetYawDegrees(&bno085_rotation_vector, &bno085_yaw_deg) == HAL_OK)
-            {
-              bno085_yaw_update_tick = now;
-              AppChassisTask_OnYawZero(bno085_yaw_deg);
-            }
             bno085_zero_key_handled = 1U;
-            Printf(MAIN_DEBUG_USART, "imu_zero:1\n");
           }
         }
       }

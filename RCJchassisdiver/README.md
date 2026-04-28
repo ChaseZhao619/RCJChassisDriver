@@ -264,6 +264,48 @@ cmd_request <dx_cm> <dy_cm> <dyaw_deg> <yaw_deg> *<CRC16>
 
 第一次查询时，`dx_cm`、`dy_cm`、`dyaw_deg` 返回 0，随后建立增量参考点。
 
+### `cmd_anglecal`
+
+执行 yaw 角度清零，功能与 `BNO_KEY` 按键清零一致。命令无参数。
+
+```text
+cmd_anglecal *7932
+```
+
+可能回复：
+
+```text
+cmd_anglecal ok *6571
+cmd_anglecal done *4C90
+cmd_anglecal busy *....
+cmd_anglecal eror *....
+err arg *....
+```
+
+说明：
+
+- `ok` 表示已成功执行 BNO085 yaw 清零。
+- `done` 会在 `ok` 后立即发送，表示该命令流程结束。
+- `busy` 通常表示当前还没有有效 BNO085 姿态数据，无法清零。
+
+### `cmd_mcureset`
+
+执行单片机软件复位。命令无参数。
+
+```text
+cmd_mcureset *C427
+```
+
+可能回复：
+
+```text
+cmd_mcureset ok *2559
+cmd_mcureset done *E436
+err arg *....
+```
+
+固件发送 `ok` 和 `done` 后会短延时，然后调用 `NVIC_SystemReset()` 复位 MCU。
+
 ### 错误回复
 
 | 回复 | 含义 |
