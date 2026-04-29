@@ -58,6 +58,10 @@
 #define MAIN_ZERO_KEY_DEBOUNCE_MS 30U
 #endif
 
+#ifndef MAIN_ZERO_KEY_LONG_PRESS_MS
+#define MAIN_ZERO_KEY_LONG_PRESS_MS 1000U
+#endif
+
 #ifndef MAIN_LOOP_DELAY_MS
 #define MAIN_LOOP_DELAY_MS 1U
 #endif
@@ -85,12 +89,13 @@ float bno085_yaw_deg;
 float bno085_gyro_z_deg_s;
 uint8_t bno085_zero_key_sample;
 uint8_t bno085_zero_key_stable;
-uint8_t bno085_zero_key_handled;
+uint8_t bno085_zero_key_long_handled;
 uint8_t bno085_rotation_valid;
 uint32_t bno085_last_print_tick;
 uint32_t bno085_yaw_update_tick;
 uint32_t bno085_gyro_update_tick;
 uint32_t bno085_zero_key_debounce_tick;
+uint32_t bno085_zero_key_press_tick;
 
 /* USER CODE END PV */
 
@@ -126,6 +131,52 @@ HAL_StatusTypeDef Main_ResetYawZero(void)
   Printf(MAIN_DEBUG_USART, "imu_zero:1\n");
 
   return HAL_OK;
+}
+
+static void Main_HandleZeroKey(uint32_t now)
+{
+  uint8_t zero_key_pressed = Bno085_IsZeroKeyPressed();
+
+  if (zero_key_pressed != bno085_zero_key_sample)
+  {
+    bno085_zero_key_sample = zero_key_pressed;
+    bno085_zero_key_debounce_tick = now;
+  }
+
+  if ((now - bno085_zero_key_debounce_tick) < MAIN_ZERO_KEY_DEBOUNCE_MS)
+  {
+    return;
+  }
+
+  if (bno085_zero_key_stable == bno085_zero_key_sample)
+  {
+    if ((bno085_zero_key_stable != 0U) &&
+        (bno085_zero_key_long_handled == 0U) &&
+        ((now - bno085_zero_key_press_tick) >= MAIN_ZERO_KEY_LONG_PRESS_MS))
+    {
+      uint8_t next_enabled = (AppChassisTask_IsMotionEnabled() == 0U) ? 1U : 0U;
+      (void)AppChassisTask_SetMotionEnabled(next_enabled);
+      bno085_zero_key_long_handled = 1U;
+    }
+    return;
+  }
+
+  bno085_zero_key_stable = bno085_zero_key_sample;
+  if (bno085_zero_key_stable != 0U)
+  {
+    bno085_zero_key_press_tick = now;
+    bno085_zero_key_long_handled = 0U;
+  }
+  else
+  {
+    if ((bno085_zero_key_long_handled == 0U) &&
+        (bno085_rotation_valid != 0U))
+    {
+      (void)Main_ResetYawZero();
+    }
+    bno085_zero_key_press_tick = 0U;
+    bno085_zero_key_long_handled = 0U;
+  }
 }
 
 /* USER CODE END 0 */
@@ -278,37 +329,7 @@ int main(void)
         bno085_gyro_update_tick = now;
       }
     }
-    {
-      uint8_t zero_key_pressed = Bno085_IsZeroKeyPressed();
-
-      if (zero_key_pressed != bno085_zero_key_sample)
-      {
-        bno085_zero_key_sample = zero_key_pressed;
-        bno085_zero_key_debounce_tick = now;
-      }
-
-      if ((now - bno085_zero_key_debounce_tick) >= MAIN_ZERO_KEY_DEBOUNCE_MS)
-      {
-        if (bno085_zero_key_stable != bno085_zero_key_sample)
-        {
-          bno085_zero_key_stable = bno085_zero_key_sample;
-          if (bno085_zero_key_stable == 0U)
-          {
-            bno085_zero_key_handled = 0U;
-          }
-        }
-
-        if ((bno085_zero_key_stable != 0U) &&
-            (bno085_zero_key_handled == 0U) &&
-            (bno085_rotation_valid != 0U))
-        {
-          if (Main_ResetYawZero() == HAL_OK)
-          {
-            bno085_zero_key_handled = 1U;
-          }
-        }
-      }
-    }
+    Main_HandleZeroKey(now);
     if ((now - bno085_yaw_update_tick) <= MAIN_CHASSIS_YAW_TIMEOUT_MS)
     {
       chassis_yaw_valid = 1U;

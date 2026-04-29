@@ -76,7 +76,7 @@ main()
   -> while (1)
        -> AppPiComm_Task()
        -> Bno085_ReadSensorData()
-       -> 零 yaw 按键处理
+       -> BNO_KEY 短按/长按处理
        -> AppChassisTask_Task()
        -> BspSuctionMotorTest_Task()
        -> AppPiComm_Task()
@@ -110,7 +110,7 @@ main()
 2. 调用 `Bno085_ReadSensorData()`，读取 IMU 数据。
 3. 如果有旋转向量数据，更新 `bno085_yaw_deg` 和 yaw 更新时间。
 4. 如果有陀螺仪数据，更新 `bno085_gyro_z_deg_s` 和 gyro 更新时间。
-5. 扫描零 yaw 按键，去抖后调用 `Main_ResetYawZero()`。
+5. 扫描 `BNO_KEY`，去抖后区分短按/长按：短按 yaw 归零，长按切换底盘运动使能。
 6. 根据 yaw/gyro 更新时间判断数据是否有效。
 7. 调用 `AppChassisTask_Task()`，根据当前底盘状态输出电机控制。
 8. 调用 `BspSuctionMotorTest_Task()`，保留吸力电机测试任务。
@@ -123,7 +123,7 @@ main()
 flowchart TD
     Start["while (1) 开始"] --> Comm1["AppPiComm_Task\n处理串口命令"]
     Comm1 --> ReadImu["Bno085_ReadSensorData\n读取 yaw/gyro"]
-    ReadImu --> ZeroKey["零 yaw 按键去抖\n必要时 Main_ResetYawZero"]
+    ReadImu --> ZeroKey["BNO_KEY 去抖\n短按归零 / 长按切换运动使能"]
     ZeroKey --> Valid["判断 yaw/gyro 是否超时"]
     Valid --> ChassisTask["AppChassisTask_Task\n底盘状态机输出"]
     ChassisTask --> SuckTest["BspSuctionMotorTest_Task"]
@@ -257,7 +257,7 @@ AppChassisTask_Task(yaw_valid, yaw_deg, gyro_valid, gyro_z_deg_s)
 - yaw 无效时进入 `WAIT_IMU`，并停止底盘。
 - 第一次拿到有效 yaw 时初始化里程计，并进入 `IDLE`。
 - 后续每轮调用 `BspChassisOdom_Update(yaw_deg)` 更新当前位置。
-- 如果 `cmd_conmotion 0` 禁用了运动，则停电机并保持在 `IDLE`，不执行转向环。
+- 如果 `cmd_conmotion 0` 或 `BNO_KEY` 长按禁用了运动，则停电机并保持在 `IDLE`，不执行转向环。
 - 如果运动使能，则按当前模式执行。
 
 各模式行为：
@@ -431,9 +431,11 @@ BNO085 驱动在 `Bsp/Src/bsp_bno085.c`，使用 I2C1。
 - `Bno085_GetYawDegrees()` 得到 yaw 角。
 - `gyro.z` 转为 `deg/s` 后给底盘转向环使用。
 
-yaw 归零：
+yaw 归零和运动使能按键：
 
-- 物理按键触发时，主循环调用 `Main_ResetYawZero()`。
+- `BNO_KEY` 短按释放时，主循环调用 `Main_ResetYawZero()`。
+- `BNO_KEY` 长按超过 `MAIN_ZERO_KEY_LONG_PRESS_MS` 时，调用 `AppChassisTask_SetMotionEnabled()` 切换底盘运动使能。
+- 长按失能后，新的 `cmd_dis`、`cmd_turn`、`cmd_dkmotor` 等底盘运动命令会返回 `busy`；再次长按可恢复。
 - 串口 `cmd_anglecal` 也调用同一个函数。
 - 归零后会更新 BNO085 yaw 零点，并通知底盘任务重置目标 yaw 和里程计。
 

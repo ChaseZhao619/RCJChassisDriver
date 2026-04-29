@@ -68,7 +68,7 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 7. `AppPiComm_Init()`：启动 USART6 中断接收。
 8. `Bno085_Init()` 和 `Bno085_EnableDefaultReports()`：初始化 IMU 并开启默认报告。
 
-主循环中持续处理串口命令、读取 BNO085 数据、按按键进行 yaw 清零、更新底盘任务，并执行吸力电机测试任务。
+主循环中持续处理串口命令、读取 BNO085 数据、处理 BNO_KEY 短按/长按、更新底盘任务，并执行吸力电机测试任务。
 
 ## 外设连接
 
@@ -83,7 +83,7 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 | xqwd | PB15 input pull-up | 吸球微动开关检测，默认低电平表示吸到球 |
 | JD1 | PD0 output | 继电器控制 |
 | BNO_INT2 | PB1 input | BNO085 中断/就绪检测 |
-| BNO_KEY | PE13 input pull-up | yaw 清零按键 |
+| BNO_KEY | PE13 input pull-up | 短按 yaw 清零，长按切换底盘运动使能 |
 | BNO_NRST | PB8 output | BNO085 复位 |
 
 ## 构建方式
@@ -378,6 +378,7 @@ cmd_conmotion 1 *7713
 
 - `0`：失能底盘运动，立即停止底盘电机，并关闭默认转向环输出。
 - `1`：使能底盘运动，允许 `cmd_dis`、`cmd_turn` 和空闲角度保持继续工作。
+- 也可以长按 `BNO_KEY` 切换该使能状态；失能后新的底盘运动命令会返回 `busy`。
 
 可能回复：
 
@@ -534,7 +535,7 @@ err arg *....
 ## 调试建议
 
 - `MAIN_IMU_PRINT_ENABLE` 可打开 IMU 周期打印。
-- yaw 清零由 `BNO_KEY` 按键触发，成功后 USART1 打印 `imu_zero:1`。
+- `BNO_KEY` 短按执行 yaw 清零，成功后 USART1 打印 `imu_zero:1`；长按约 1 秒切换底盘运动使能。
 - 如果串口命令一直返回 `busy`，优先检查 BNO085 是否正常输出 yaw；没有有效 yaw 时底盘任务会停留在等待 IMU 状态。
 - 如果底盘方向或角度闭环相反，检查 `BSP_CHASSIS_*_DIR`、`BSP_CHASSIS_YAW_CTRL_DIR`、`BSP_CHASSIS_GYRO_Z_DIR` 等方向宏。
 - 如果里程计距离偏差较大，调整 `BSP_CHASSIS_ODOM_FORWARD_SCALE` 和 `BSP_CHASSIS_ODOM_LEFT_SCALE`。
