@@ -10,6 +10,7 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 - 红外复眼：BE-1732 通过 I2C2 读取 7 路红外光强方向。
 - 电机通信：CAN1 控制底盘电机和功能电机。
 - 吸力电机：TIM4_CH1 输出 PWM，支持 0-100% 速度设置。
+- 吸球检测：PB15/xqwd 输入微动开关，支持串口查询是否吸到球。
 - 继电器：PD0/JD1 输出控制，支持串口开关。
 - 串口通信：USART6 接收树莓派命令，USART1 默认用于调试打印。
 
@@ -33,6 +34,7 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 │       ├── bsp_bno085.c          # BNO085 初始化、报文读取、yaw 计算
 │       ├── bsp_be1732.c          # BE-1732 红外复眼 I2C 读取
 │       ├── bsp_dct.c             # PD0/JD1 继电器开关控制
+│       ├── bsp_suction_detect.c  # PB15/xqwd 吸球微动开关检测
 │       ├── bsp_suction_motor.c   # 吸力电机 PWM/油门控制
 │       └── bsp_usart.c           # 串口发送、接收、Printf 封装
 ├── Core/                         # STM32CubeMX 生成和用户主循环代码
@@ -59,11 +61,12 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 
 1. `BspMotor_Init()`：启动 CAN 电机通信。
 2. `BspSuctionMotor_Init()`：启动吸力电机 PWM。
-3. `BspBe1732_Init()`：初始化 BE-1732 红外复眼，默认进入调制检测模式。
-4. `BspDct_Init()`：关闭 PD0/JD1 继电器输出。
-5. `AppChassisTask_Init()`：初始化底盘任务状态机。
-6. `AppPiComm_Init()`：启动 USART6 中断接收。
-7. `Bno085_Init()` 和 `Bno085_EnableDefaultReports()`：初始化 IMU 并开启默认报告。
+3. `BspSuctionDetect_Init()`：初始化吸球检测 BSP。
+4. `BspBe1732_Init()`：初始化 BE-1732 红外复眼，默认进入调制检测模式。
+5. `BspDct_Init()`：关闭 PD0/JD1 继电器输出。
+6. `AppChassisTask_Init()`：初始化底盘任务状态机。
+7. `AppPiComm_Init()`：启动 USART6 中断接收。
+8. `Bno085_Init()` 和 `Bno085_EnableDefaultReports()`：初始化 IMU 并开启默认报告。
 
 主循环中持续处理串口命令、读取 BNO085 数据、按按键进行 yaw 清零、更新底盘任务，并执行吸力电机测试任务。
 
@@ -77,6 +80,7 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 | I2C1 | PB6 SCL, PB7 SDA, 400 kHz | BNO085 通信 |
 | I2C2 | PB10 SCL, PB11 SDA, 100 kHz | BE-1732 红外复眼 |
 | TIM4_CH1 | PD12, 50 Hz PWM | 吸力电机/电调控制 |
+| xqwd | PB15 input pull-up | 吸球微动开关检测，默认低电平表示吸到球 |
 | JD1 | PD0 output | 继电器控制 |
 | BNO_INT2 | PB1 input | BNO085 中断/就绪检测 |
 | BNO_KEY | PE13 input pull-up | yaw 清零按键 |
@@ -307,6 +311,21 @@ cmd_suck 50 *5752
 ```text
 cmd_suck ok 50 *....
 cmd_suck busy 50 *....
+err arg *....
+```
+
+### `cmd_xqcx`
+
+查询 PB15/xqwd 吸球微动开关状态。命令无参数，返回 `1` 表示吸到球，`0` 表示未吸到球。默认按上拉输入、开关闭合拉低处理。
+
+```text
+cmd_xqcx *8DF9
+```
+
+回复格式：
+
+```text
+cmd_xqcx <0|1> *<CRC16>
 err arg *....
 ```
 

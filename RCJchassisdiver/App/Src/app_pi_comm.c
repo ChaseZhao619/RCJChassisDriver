@@ -3,6 +3,7 @@
 #include "app_chassis_task.h"
 #include "bsp_be1732.h"
 #include "bsp_dct.h"
+#include "bsp_suction_detect.h"
 #include "bsp_suction_motor.h"
 #include "bsp_usart.h"
 #include "usart.h"
@@ -340,6 +341,7 @@ static void HandlePayload(char *payload)
     uint8_t dkmotor_head_lock;
     uint8_t dis_speed_profile;
     uint8_t infred_channel;
+    uint8_t xq_detected;
     uint8_t conmotion_enabled;
     BspBe1732Mode infred_mode;
     const char *infred_mode_arg;
@@ -496,6 +498,24 @@ static void HandlePayload(char *payload)
         {
             SendSuckCommandReply("busy", suck_speed_percent);
         }
+        return;
+    }
+
+    if (strncmp(payload, "cmd_xqcx", 8U) == 0)
+    {
+        cursor = payload + 8U;
+        if (EnsureLineEnded(cursor) == 0U)
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        xq_detected = BspSuctionDetect_IsBallDetected();
+        (void)snprintf(response,
+                       sizeof(response),
+                       "cmd_xqcx %u",
+                       xq_detected);
+        SendPayloadWithCrc(response);
         return;
     }
 

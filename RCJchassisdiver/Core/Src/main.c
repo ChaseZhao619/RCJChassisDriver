@@ -31,6 +31,7 @@
 #include "bsp_be1732.h"
 #include "bsp_dct.h"
 #include "bsp_motor.h"
+#include "bsp_suction_detect.h"
 #include "bsp_suction_motor.h"
 #include "bsp_suction_motor_test.h"
 #include "app_chassis_task.h"
@@ -170,6 +171,10 @@ int main(void)
     Error_Handler();
   }
   if (BspSuctionMotor_Init() != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (BspSuctionDetect_Init() != HAL_OK)
   {
     Error_Handler();
   }

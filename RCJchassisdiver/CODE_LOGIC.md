@@ -50,6 +50,7 @@ flowchart TB
     Infra <--> Be1732
     Imu <--> Bno085
     Suck --> Esc
+    SuckDetect["吸球检测"] --> Switch["PB15/xqwd 微动开关"]
     Dct --> Relay["继电器"]
     Core -.-> Usart
     Core -.-> Motor
@@ -66,6 +67,7 @@ main()
   -> MX_*_Init()
   -> BspMotor_Init()
   -> BspSuctionMotor_Init()
+  -> BspSuctionDetect_Init()
   -> BspBe1732_Init()
   -> BspDct_Init()
   -> AppChassisTask_Init()
@@ -95,6 +97,7 @@ main()
 - `MX_I2C2_Init()`：初始化 I2C2，用于 BE-1732 红外传感器。
 - `BspMotor_Init()`：配置 CAN 滤波器、启动 CAN、打开 FIFO0 接收中断。
 - `BspSuctionMotor_Init()`：启动 TIM4 CH1 PWM，并输出初始化脉宽。
+- `BspSuctionDetect_Init()`：初始化吸球检测 BSP，GPIO 配置由 CubeMX 的 `MX_GPIO_Init()` 完成。
 - `BspBe1732_Init()`：恢复 I2C2 总线、检查设备、默认切换到调制检测模式。
 - `BspDct_Init()`：关闭 PD0/JD1 继电器输出。
 - `AppChassisTask_Init()`：初始化底盘任务状态机。
@@ -190,6 +193,7 @@ CRC 使用 CRC16-CCITT，初值 `0xFFFF`，计算范围是 `*` 前面的 payload
 - `cmd_juststop`：停止持续运动，但保持转向环。
 - `cmd_conmotion 0/1`：禁用/使能底盘运动功能。
 - `cmd_suck speed`：设置吸力电机速度百分比。
+- `cmd_xqcx`：读取 PB15/xqwd 吸球微动开关状态，返回 `1` 表示吸到球。
 - `cmd_dct 0/1`：控制 PD0/JD1 继电器输出。
 - `cmd_anglecal`：执行 yaw 归零，功能等同按键。
 - `cmd_mcureset`：回复后复位 MCU。
@@ -520,6 +524,27 @@ flowchart LR
     Init --> Pwm["TIM4 CH1 PWM"]
     Map --> Pwm
     Pwm --> Esc["吸力电调"]
+```
+
+## 吸球检测逻辑
+
+吸球检测驱动在 `Bsp/Src/bsp_suction_detect.c`，使用 PB15/xqwd 普通 GPIO 输入。
+
+控制方式：
+
+- PB15 已由 CubeMX 配置为上拉输入。
+- 默认 `BSP_SUCTION_DETECT_ACTIVE_LEVEL` 为 `GPIO_PIN_RESET`，微动开关闭合拉低时表示吸到球。
+- 如硬件为高电平有效，可在编译宏中把 `BSP_SUCTION_DETECT_ACTIVE_LEVEL` 改为 `GPIO_PIN_SET`。
+- `cmd_xqcx` 调用 `BspSuctionDetect_IsBallDetected()`，返回 `cmd_xqcx 1` 或 `cmd_xqcx 0`。
+
+数据流：
+
+```text
+cmd_xqcx
+  -> AppPiComm
+  -> BspSuctionDetect_IsBallDetected()
+  -> HAL_GPIO_ReadPin(xqwd_GPIO_Port, xqwd_Pin)
+  -> PB15/xqwd 微动开关
 ```
 
 ## 继电器逻辑
