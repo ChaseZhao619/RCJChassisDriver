@@ -338,6 +338,7 @@ static void HandlePayload(char *payload)
     uint8_t dct_enabled;
     uint8_t dkmotor_speed_percent;
     uint8_t dkmotor_head_lock;
+    uint8_t dis_speed_profile;
     uint8_t infred_channel;
     uint8_t conmotion_enabled;
     BspBe1732Mode infred_mode;
@@ -352,15 +353,27 @@ static void HandlePayload(char *payload)
     if (strncmp(payload, "cmd_dis", 7U) == 0)
     {
         cursor = payload + 7U;
+        dis_speed_profile = APP_CHASSIS_TASK_PROFILE_NORMAL;
         if ((ReadFloat(&cursor, &x_cm) == 0U) ||
-            (ReadFloat(&cursor, &y_cm) == 0U) ||
-            (EnsureLineEnded(cursor) == 0U))
+            (ReadFloat(&cursor, &y_cm) == 0U))
         {
             SendPayloadWithCrc("err arg");
             return;
         }
 
-        status = AppChassisTask_CommandDistanceCm(x_cm, y_cm);
+        cursor = SkipSpaces(cursor);
+        if (*cursor != '\0')
+        {
+            if ((ReadUint8(&cursor, &dis_speed_profile) == 0U) ||
+                (dis_speed_profile > APP_CHASSIS_TASK_PROFILE_SMOOTH) ||
+                (EnsureLineEnded(cursor) == 0U))
+            {
+                SendPayloadWithCrc("err arg");
+                return;
+            }
+        }
+
+        status = AppChassisTask_CommandDistanceCm(x_cm, y_cm, dis_speed_profile);
         if (status == HAL_OK)
         {
             CopyCommandArgs(app_pi_done_dis_args,

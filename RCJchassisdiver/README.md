@@ -185,21 +185,29 @@ uint16_t crc16_ccitt(const uint8_t *data, uint16_t size)
 控制底盘按当前里程计坐标做相对位移，单位为 cm。执行过程中保持当前 yaw。
 
 ```text
-cmd_dis <x_cm> <y_cm> *<CRC16>
+cmd_dis <x_cm> <y_cm> [speed_profile] *<CRC16>
 ```
 
 示例：
 
 ```text
 cmd_dis 10 0 *B37E
+cmd_dis 10 0 0 *....
 ```
 
-含义：向里程计 x 方向移动 10 cm，y 方向不变。
+含义：向里程计 x 方向移动 10 cm，y 方向不变。`speed_profile` 可省略，默认 `1`。
+
+速度曲线档位：
+
+- `0`：加减速更急，能更快接近最高速度。
+- `1`：维持原来的曲线。
+- `2`：加减速更缓，起停更柔和。
 
 可能回复：
 
 ```text
 cmd_dis ok 10 0 *....
+cmd_dis ok 10 0 0 *....
 cmd_dis busy 10 0 *....
 cmd_dis done 10 0 *....
 err arg *....

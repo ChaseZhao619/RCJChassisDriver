@@ -35,6 +35,7 @@ static uint8_t app_motion_enabled;
 static float app_dkmotor_speed_rpm;
 static float app_dkmotor_angle_deg;
 static uint8_t app_dkmotor_head_lock;
+static uint8_t app_move_profile;
 
 static const float app_pi = 3.14159265358979323846f;
 
@@ -186,7 +187,24 @@ static float CalcProfileMaxSpeed(const BspChassisOdomPose *pose)
         progress = 1.0f;
     }
 
+    /*
+     * Profile curve tuning / 速度曲线调参:
+     * normal keeps the original sine curve; sharp uses an exponent below 1.0f
+     * to reach higher speed earlier; smooth uses an exponent above 1.0f to
+     * keep start/end slower.
+     * NORMAL 保持原正弦曲线；SHARP 使用小于 1.0f 的指数，让速度更早升高；
+     * SMOOTH 使用大于 1.0f 的指数，让起点和终点更慢。
+     */
     scale = sinf(progress * app_pi);
+    if (app_move_profile == APP_CHASSIS_TASK_PROFILE_SHARP)
+    {
+        scale = powf(scale, APP_CHASSIS_TASK_PROFILE_SHARP_EXP);
+    }
+    else if (app_move_profile == APP_CHASSIS_TASK_PROFILE_SMOOTH)
+    {
+        scale = powf(scale, APP_CHASSIS_TASK_PROFILE_SMOOTH_EXP);
+    }
+
     if (scale < APP_CHASSIS_TASK_PROFILE_MIN_SCALE)
     {
         scale = APP_CHASSIS_TASK_PROFILE_MIN_SCALE;
@@ -369,6 +387,7 @@ void AppChassisTask_Init(void)
     app_dkmotor_speed_rpm = 0.0f;
     app_dkmotor_angle_deg = 0.0f;
     app_dkmotor_head_lock = 1U;
+    app_move_profile = APP_CHASSIS_TASK_PROFILE_NORMAL;
     (void)BspChassis_Stop();
 }
 
@@ -414,11 +433,15 @@ HAL_StatusTypeDef AppChassisTask_CommandJustStop(void)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm, float y_cm)
+HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm,
+                                                  float y_cm,
+                                                  uint8_t speed_profile)
 {
     const BspChassisOdomPose *pose;
 
-    if ((app_motion_enabled == 0U) || (app_odom_ready == 0U))
+    if ((app_motion_enabled == 0U) ||
+        (app_odom_ready == 0U) ||
+        (speed_profile > APP_CHASSIS_TASK_PROFILE_SMOOTH))
     {
         return HAL_BUSY;
     }
@@ -432,6 +455,7 @@ HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm, float y_cm)
     app_move_reached = 0U;
     app_done_event = APP_CHASSIS_TASK_DONE_NONE;
     app_active_command = APP_CHASSIS_TASK_DONE_DIS;
+    app_move_profile = speed_profile;
     SetMode(APP_CHASSIS_MODE_MOVE);
 
     return HAL_OK;

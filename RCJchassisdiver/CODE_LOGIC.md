@@ -268,7 +268,7 @@ AppChassisTask_Task(yaw_valid, yaw_deg, gyro_valid, gyro_z_deg_s)
 
 重要接口：
 
-- `AppChassisTask_CommandDistanceCm()`：记录当前位置作为起点，设置目标 `x/y`。
+- `AppChassisTask_CommandDistanceCm()`：记录当前位置作为起点，设置目标 `x/y`，并保存 `cmd_dis` 的速度曲线档位。
 - `AppChassisTask_CommandTurnDeg()`：设置目标 yaw。
 - `AppChassisTask_CommandDkMotor()`：设置持续运动速度、方向、锁头模式。
 - `AppChassisTask_CommandJustStop()`：清持续运动速度，回到 `IDLE`，继续保持转向环。
