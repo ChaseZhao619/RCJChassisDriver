@@ -9,6 +9,7 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 - 姿态：BNO085 通过 I2C1 读取 yaw 和 gyro z，用于航向保持和里程计更新。
 - 红外复眼：BE-1732 通过 I2C2 读取 7 路红外光强方向。
 - 电机通信：CAN1 控制底盘电机和功能电机。
+- 踢球电机：CAN ID 5，复用 CAN 电机驱动，支持串口设置速度和方向。
 - 吸力电机：TIM4_CH1 输出 PWM，支持 0-100% 速度设置。
 - 吸球检测：PB15/xqwd 输入微动开关，支持串口查询是否吸到球。
 - 继电器：PD0/JD1 输出控制，支持串口开关。
@@ -29,6 +30,7 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 │   ├── Inc/
 │   └── Src/
 │       ├── bsp_motor.c           # CAN 电机反馈和电流发送
+│       ├── bsp_kick_motor.c      # CAN ID 5 踢球电机速度控制
 │       ├── bsp_chassis.c         # 底盘运动学、PID、角度保持
 │       ├── bsp_chassis_odom.c    # 里程计估计和目标点控制
 │       ├── bsp_bno085.c          # BNO085 初始化、报文读取、yaw 计算
@@ -60,15 +62,16 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 `Core/Src/main.c` 完成 HAL、系统时钟、GPIO、CAN、USART、I2C、TIM 初始化后，依次初始化：
 
 1. `BspMotor_Init()`：启动 CAN 电机通信。
-2. `BspSuctionMotor_Init()`：启动吸力电机 PWM。
-3. `BspSuctionDetect_Init()`：初始化吸球检测 BSP。
-4. `BspBe1732_Init()`：初始化 BE-1732 红外复眼，默认进入调制检测模式。
-5. `BspDct_Init()`：关闭 PD0/JD1 继电器输出。
-6. `AppChassisTask_Init()`：初始化底盘任务状态机。
-7. `AppPiComm_Init()`：启动 USART6 中断接收。
-8. `Bno085_Init()` 和 `Bno085_EnableDefaultReports()`：初始化 IMU 并开启默认报告。
+2. `BspKickMotor_Init()`：初始化 CAN ID 5 踢球电机速度控制。
+3. `BspSuctionMotor_Init()`：启动吸力电机 PWM。
+4. `BspSuctionDetect_Init()`：初始化吸球检测 BSP。
+5. `BspBe1732_Init()`：初始化 BE-1732 红外复眼，默认进入调制检测模式。
+6. `BspDct_Init()`：关闭 PD0/JD1 继电器输出。
+7. `AppChassisTask_Init()`：初始化底盘任务状态机。
+8. `AppPiComm_Init()`：启动 USART6 中断接收。
+9. `Bno085_Init()` 和 `Bno085_EnableDefaultReports()`：初始化 IMU 并开启默认报告。
 
-主循环中持续处理串口命令、读取 BNO085 数据、处理 BNO_KEY 短按/长按、更新底盘任务，并执行吸力电机测试任务。
+主循环中持续处理串口命令、读取 BNO085 数据、处理 BNO_KEY 短按/长按、更新底盘任务和踢球电机速度环，并执行吸力电机测试任务。
 
 ## 外设连接
 
@@ -311,6 +314,37 @@ cmd_suck 50 *5752
 ```text
 cmd_suck ok 50 *....
 cmd_suck busy 50 *....
+err arg *....
+```
+
+### `cmd_tqdj`
+
+设置踢球电机速度和方向。踢球电机使用 CAN ID 5，速度闭环由固件周期执行；速度为 `0` 时立即停止输出。
+
+```text
+cmd_tqdj <speed_percent> <direction> *<CRC16>
+```
+
+参数说明：
+
+- `speed_percent`：速度百分比，范围 `0-100`。当前 `100` 对应 `BSP_KICK_MOTOR_MAX_RPM`，默认 `5000 rpm`。
+- `direction`：方向，`0` 为正转，`1` 为反转。
+
+示例：
+
+```text
+cmd_tqdj 80 0 *....
+cmd_tqdj 80 1 *....
+cmd_tqdj 0 0 *....
+```
+
+可能回复：
+
+```text
+cmd_tqdj ok 80 0 *....
+cmd_tqdj ok 80 1 *....
+cmd_tqdj ok 0 0 *....
+cmd_tqdj busy 80 0 *....
 err arg *....
 ```
 

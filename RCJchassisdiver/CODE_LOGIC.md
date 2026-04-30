@@ -28,6 +28,7 @@ flowchart TB
     Infra["BspBe1732\nI2C2 红外"]
     Suck["BspSuctionMotor\nTIM4 PWM"]
     Dct["BspDct\nPD0/JD1 继电器"]
+    Kick["BspKickMotor\nCAN ID 5 踢球电机速度环"]
     CanBus["CAN1\nC610/C620"]
     Motors["底盘电机 / 功能电机"]
     Be1732["BE-1732"]
@@ -39,11 +40,13 @@ flowchart TB
     AppPi --> Infra
     AppPi --> Suck
     AppPi --> Dct
+    AppPi --> Kick
     AppPi --> Usart
     AppChassis --> Chassis
     AppChassis --> Odom
     Imu --> AppChassis
     Chassis --> Motor
+    Kick --> Motor
     Odom --> Motor
     Motor <--> CanBus
     CanBus <--> Motors
@@ -66,6 +69,7 @@ flowchart TB
 main()
   -> MX_*_Init()
   -> BspMotor_Init()
+  -> BspKickMotor_Init()
   -> BspSuctionMotor_Init()
   -> BspSuctionDetect_Init()
   -> BspBe1732_Init()
@@ -78,6 +82,7 @@ main()
        -> Bno085_ReadSensorData()
        -> BNO_KEY 短按/长按处理
        -> AppChassisTask_Task()
+       -> BspKickMotor_Task()
        -> BspSuctionMotorTest_Task()
        -> AppPiComm_Task()
 ```
@@ -96,6 +101,7 @@ main()
 - `MX_TIM4_Init()`：初始化 TIM4 PWM，用于吸力电机信号。
 - `MX_I2C2_Init()`：初始化 I2C2，用于 BE-1732 红外传感器。
 - `BspMotor_Init()`：配置 CAN 滤波器、启动 CAN、打开 FIFO0 接收中断。
+- `BspKickMotor_Init()`：初始化 CAN ID 5 踢球电机控制状态，并发送一次 0 电流。
 - `BspSuctionMotor_Init()`：启动 TIM4 CH1 PWM，并输出初始化脉宽。
 - `BspSuctionDetect_Init()`：初始化吸球检测 BSP，GPIO 配置由 CubeMX 的 `MX_GPIO_Init()` 完成。
 - `BspBe1732_Init()`：恢复 I2C2 总线、检查设备、默认切换到调制检测模式。
@@ -113,9 +119,10 @@ main()
 5. 扫描 `BNO_KEY`，去抖后区分短按/长按：短按 yaw 归零，长按切换底盘运动使能。
 6. 根据 yaw/gyro 更新时间判断数据是否有效。
 7. 调用 `AppChassisTask_Task()`，根据当前底盘状态输出电机控制。
-8. 调用 `BspSuctionMotorTest_Task()`，保留吸力电机测试任务。
-9. 再调用一次 `AppPiComm_Task()`，降低串口命令处理延迟。
-10. `HAL_Delay(MAIN_LOOP_DELAY_MS)`。
+8. 调用 `BspKickMotor_Task()`，按串口给定速度/方向更新 5 号踢球电机电流。
+9. 调用 `BspSuctionMotorTest_Task()`，保留吸力电机测试任务。
+10. 再调用一次 `AppPiComm_Task()`，降低串口命令处理延迟。
+11. `HAL_Delay(MAIN_LOOP_DELAY_MS)`。
 
 主循环调度图：
 
@@ -126,7 +133,8 @@ flowchart TD
     ReadImu --> ZeroKey["BNO_KEY 去抖\n短按归零 / 长按切换运动使能"]
     ZeroKey --> Valid["判断 yaw/gyro 是否超时"]
     Valid --> ChassisTask["AppChassisTask_Task\n底盘状态机输出"]
-    ChassisTask --> SuckTest["BspSuctionMotorTest_Task"]
+    ChassisTask --> KickTask["BspKickMotor_Task\n踢球电机速度环"]
+    KickTask --> SuckTest["BspSuctionMotorTest_Task"]
     SuckTest --> Comm2["AppPiComm_Task\n再次处理串口和 done"]
     Comm2 --> Delay["HAL_Delay"]
     Delay --> Start
@@ -193,6 +201,7 @@ CRC 使用 CRC16-CCITT，初值 `0xFFFF`，计算范围是 `*` 前面的 payload
 - `cmd_juststop`：停止持续运动，但保持转向环。
 - `cmd_conmotion 0/1`：禁用/使能底盘运动功能。
 - `cmd_suck speed`：设置吸力电机速度百分比。
+- `cmd_tqdj speed direction`：设置 CAN ID 5 踢球电机速度和方向，方向 `0` 正转、`1` 反转。
 - `cmd_xqcx`：读取 PB15/xqwd 吸球微动开关状态，返回 `1` 表示吸到球。
 - `cmd_dct 0/1`：控制 PD0/JD1 继电器输出。
 - `cmd_anglecal`：执行 yaw 归零，功能等同按键。

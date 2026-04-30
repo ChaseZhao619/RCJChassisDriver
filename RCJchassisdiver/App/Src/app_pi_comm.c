@@ -3,6 +3,7 @@
 #include "app_chassis_task.h"
 #include "bsp_be1732.h"
 #include "bsp_dct.h"
+#include "bsp_kick_motor.h"
 #include "bsp_suction_detect.h"
 #include "bsp_suction_motor.h"
 #include "bsp_usart.h"
@@ -325,6 +326,24 @@ static void SendSuckCommandReply(const char *state, uint8_t speed_percent)
     SendPayloadWithCrc(response);
 }
 
+static void SendTqdjCommandReply(const char *state, uint8_t speed_percent, uint8_t reverse)
+{
+    char response[APP_PI_COMM_LINE_SIZE];
+
+    if (state == NULL)
+    {
+        return;
+    }
+
+    (void)snprintf(response,
+                   sizeof(response),
+                   "cmd_tqdj %s %u %u",
+                   state,
+                   speed_percent,
+                   reverse);
+    SendPayloadWithCrc(response);
+}
+
 static void HandlePayload(char *payload)
 {
     char *cursor;
@@ -340,6 +359,8 @@ static void HandlePayload(char *payload)
     uint8_t dkmotor_speed_percent;
     uint8_t dkmotor_head_lock;
     uint8_t dis_speed_profile;
+    uint8_t tqdj_speed_percent;
+    uint8_t tqdj_reverse;
     uint8_t infred_channel;
     uint8_t xq_detected;
     uint8_t conmotion_enabled;
@@ -497,6 +518,31 @@ static void HandlePayload(char *payload)
         else
         {
             SendSuckCommandReply("busy", suck_speed_percent);
+        }
+        return;
+    }
+
+    if (strncmp(payload, "cmd_tqdj", 8U) == 0)
+    {
+        cursor = payload + 8U;
+        if ((ReadUint8(&cursor, &tqdj_speed_percent) == 0U) ||
+            (tqdj_speed_percent > 100U) ||
+            (ReadUint8(&cursor, &tqdj_reverse) == 0U) ||
+            (tqdj_reverse > 1U) ||
+            (EnsureLineEnded(cursor) == 0U))
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = BspKickMotor_SetSpeed(tqdj_speed_percent, tqdj_reverse);
+        if (status == HAL_OK)
+        {
+            SendTqdjCommandReply("ok", tqdj_speed_percent, tqdj_reverse);
+        }
+        else
+        {
+            SendTqdjCommandReply("busy", tqdj_speed_percent, tqdj_reverse);
         }
         return;
     }

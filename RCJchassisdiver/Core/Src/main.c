@@ -30,6 +30,7 @@
 #include "bsp_bno085.h"
 #include "bsp_be1732.h"
 #include "bsp_dct.h"
+#include "bsp_kick_motor.h"
 #include "bsp_motor.h"
 #include "bsp_suction_detect.h"
 #include "bsp_suction_motor.h"
@@ -221,6 +222,10 @@ int main(void)
   {
     Error_Handler();
   }
+  if (BspKickMotor_Init() != HAL_OK)
+  {
+    Error_Handler();
+  }
   if (BspSuctionMotor_Init() != HAL_OK)
   {
     Error_Handler();
@@ -342,6 +347,7 @@ int main(void)
                         bno085_yaw_deg,
                         chassis_gyro_valid,
                         bno085_gyro_z_deg_s);
+    BspKickMotor_Task();
     BspSuctionMotorTest_Task();
     AppPiComm_Task();
     HAL_Delay(MAIN_LOOP_DELAY_MS);
