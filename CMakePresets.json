@@ -1,0 +1,72 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "stm32-base",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/stm32/${presetName}",
+            "toolchainFile": "${sourceDir}/RCJchassisdiver/cmake/gcc-arm-none-eabi.cmake",
+            "cacheVariables": {
+                "RCJ_BUILD_STM32": "ON",
+                "RCJ_BUILD_HOST_APP": "OFF"
+            }
+        },
+        {
+            "name": "stm32-debug",
+            "displayName": "STM32 Debug",
+            "inherits": "stm32-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "stm32-release",
+            "displayName": "STM32 Release",
+            "inherits": "stm32-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "host-debug",
+            "displayName": "Ubuntu Host App Debug",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/host/debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "RCJ_BUILD_STM32": "OFF",
+                "RCJ_BUILD_HOST_APP": "ON"
+            }
+        },
+        {
+            "name": "host-release",
+            "displayName": "Ubuntu Host App Release",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/host/release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "RCJ_BUILD_STM32": "OFF",
+                "RCJ_BUILD_HOST_APP": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "stm32-debug",
+            "configurePreset": "stm32-debug"
+        },
+        {
+            "name": "stm32-release",
+            "configurePreset": "stm32-release"
+        },
+        {
+            "name": "host-debug",
+            "configurePreset": "host-debug"
+        },
+        {
+            "name": "host-release",
+            "configurePreset": "host-release"
+        }
+    ]
+}

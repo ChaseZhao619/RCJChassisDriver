@@ -1,0 +1,128 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "STM32: configure Debug",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "Debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/RCJchassisdiver"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "STM32: build Debug",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/RCJchassisdiver"
+            },
+            "dependsOn": [
+                "STM32: configure Debug"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "STM32: flash Debug",
+            "type": "shell",
+            "command": "/home/chase/.local/bin/pyocd",
+            "args": [
+                "load",
+                "--target",
+                "stm32f407vetx",
+                "--frequency",
+                "4000000",
+                "${workspaceFolder}/RCJchassisdiver/build/Debug/RCJchassisdiver.elf"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/RCJchassisdiver"
+            },
+            "dependsOn": [
+                "STM32: build Debug"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "STM32: configure Release",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "stm32-release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "STM32: build Release",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "stm32-release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": [
+                "STM32: configure Release"
+            ],
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "Host App: configure Debug",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "host-debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Host App: build Debug",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "host-debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": [
+                "Host App: configure Debug"
+            ],
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "Build: all Debug",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "STM32: build Debug",
+                "Host App: build Debug"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}

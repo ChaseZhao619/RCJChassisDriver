@@ -1,0 +1,73 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "DAPLink: Flash only",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "echo DAPLink flash complete",
+            "cwd": "${workspaceFolder}/RCJchassisdiver",
+            "preLaunchTask": "STM32: flash Debug",
+            "presentation": {
+                "group": "DAPLink",
+                "order": 1
+            }
+        },
+        {
+            "name": "DAPLink: Debug with pyOCD",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/RCJchassisdiver",
+            "executable": "${workspaceFolder}/RCJchassisdiver/build/Debug/RCJchassisdiver.elf",
+            "servertype": "pyocd",
+            "serverpath": "${workspaceFolder}/RCJchassisdiver/.vscode/pyocd-cortex-debug.sh",
+            "gdbPath": "${workspaceFolder}/tools/arm-none-eabi-gdb-wrapper.sh",
+            "targetId": "stm32f407vetx",
+            "interface": "swd",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "STM32: build Debug",
+            "serverArgs": [
+                "--frequency",
+                "4000000"
+            ],
+            "showDevDebugOutput": "none",
+            "presentation": {
+                "group": "DAPLink",
+                "order": 2
+            }
+        },
+        {
+            "name": "Host App: Build Debug",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "echo Host app build complete",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Host App: build Debug",
+            "presentation": {
+                "group": "Host App",
+                "order": 1
+            }
+        },
+        {
+            "name": "Host App: Run Frame Example",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/host/debug/RCJappforchase/rcj_appforchase",
+            "args": [
+                "--frame",
+                "cmd_dis",
+                "10",
+                "0"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "Host App: build Debug",
+            "presentation": {
+                "group": "Host App",
+                "order": 2
+            }
+        }
+    ]
+}

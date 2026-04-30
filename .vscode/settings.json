@@ -1,0 +1,9 @@
+{
+    "cmake.sourceDirectory": "${workspaceFolder}",
+    "cmake.useCMakePresets": "always",
+    "cmake.configureOnOpen": false,
+    "cmake.preferredGenerators": [
+        "Ninja"
+    ],
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/stm32/stm32-debug/compile_commands.json"
+}

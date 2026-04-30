@@ -1,0 +1,33 @@
+build/
+cmake-build-*/
+
+# CMake local metadata
+CMakeUserPresets.json
+compile_commands.json
+
+# STM32 build outputs
+*.o
+*.d
+*.su
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.log
+
+# STM32CubeIDE / CubeMX local metadata
+.settings/
+.mxproject
+.project
+.cproject
+*.launch
+
+# Python / host app local files
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS/editor noise
+.DS_Store

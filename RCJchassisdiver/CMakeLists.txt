@@ -77,6 +77,7 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
     -u _printf_float
+    "-Wl,-Map=$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>/${CMAKE_PROJECT_NAME}.map"
 )
 
 # Remove wrong libob.a library dependency when using cpp files
