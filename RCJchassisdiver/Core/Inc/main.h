@@ -64,10 +64,10 @@ HAL_StatusTypeDef Main_ResetYawZero(void);
 #define BNO_KEY_GPIO_Port GPIOE
 #define xqwd_Pin GPIO_PIN_15
 #define xqwd_GPIO_Port GPIOB
-#define JD1_Pin GPIO_PIN_0
-#define JD1_GPIO_Port GPIOD
 #define BNO_NRST_Pin GPIO_PIN_8
 #define BNO_NRST_GPIO_Port GPIOB
+#define JD1_Pin GPIO_PIN_0
+#define JD1_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
 

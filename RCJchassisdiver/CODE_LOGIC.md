@@ -207,6 +207,8 @@ CRC 使用 CRC16-CCITT，初值 `0xFFFF`，计算范围是 `*` 前面的 payload
 - `cmd_anglecal`：执行 yaw 归零，功能等同按键。
 - `cmd_mcureset`：回复后复位 MCU。
 - `cmd_infred`：读取 BE-1732 当前最强红外通道。
+- `cmd_redzhi`：读取 BE-1732 当前最大光值。
+- `cmd_xgred value`：修改无红外判断的最大光值比较阈值，并写入 Flash 保存。
 - `cmd_infred_mode pt/tz`：切换 BE-1732 普通检测/调制检测模式。
 - `cmd_request`：返回最近一次运动请求相对当前的偏差。
 
@@ -275,9 +277,9 @@ AppChassisTask_Task(yaw_valid, yaw_deg, gyro_valid, gyro_z_deg_s)
 - `MOVE`：按起点到目标点的线段走。代码会根据线段方向计算沿线速度和横向纠偏速度，尽量保证走直线。
 - `TURN`：只控制 yaw，达到目标角度并稳定停车后产生 `done`。
 - `DKMOTOR`：
-  - `head_lock = 1`：锁住命令发出瞬间的 yaw，按给定运动角度平移。
+  - `head_lock = 1`：锁住命令发出瞬间的 yaw，按给定运动角度平移，使用带 gyro 反馈的角度环。
   - `head_lock = 0`：先转到目标角度，再向车头前方直行。
-  - 该模式没有加减速规划，只使用轮速闭环。
+  - 该模式没有加减速规划，使用轮速闭环和车头角度保持。
 
 重要接口：
 
@@ -482,7 +484,9 @@ BE-1732 驱动在 `Bsp/Src/bsp_be1732.c`，使用 I2C2。
 
 串口命令：
 
-- `cmd_infred`：调用 `BspBe1732_ReadStrongestChannel()`，返回 `1-7` 中最强红外通道。
+- `cmd_infred`：调用 `BspBe1732_ReadFilteredChannel()`，正常返回 `1-7` 中最强红外通道；最大光值连续 30 次 `<=4` 时返回 `-1`。
+- `cmd_redzhi`：调用 `BspBe1732_ReadStrongestValue()`，返回当前最大光值。
+- `cmd_xgred value`：调用 `BspBe1732_SetNoBallValueThreshold()`，修改无红外判断阈值并保存到 Flash sector 7。
 - `cmd_infred_mode pt`：切换普通检测模式。
 - `cmd_infred_mode tz`：切换调制检测模式。
 
@@ -492,13 +496,16 @@ BE-1732 读取流程图：
 
 ```mermaid
 flowchart TD
-    Cmd["cmd_infred"] --> ReadStrong["ReadStrongestChannel"]
+    Cmd["cmd_infred"] --> ReadStrong["ReadFilteredChannel"]
     ReadStrong --> Direct["读取最强通道命令"]
     Direct --> Valid{"返回 1-7?"}
-    Valid -- "是" --> Reply["回复通道号"]
+    Valid -- "是" --> ReadValue["读取最大光值"]
     Valid -- "否" --> Scan["逐通道读取 1-7"]
     Scan --> Max["比较最大红外值"]
-    Max --> Reply
+    Max --> ReadValue
+    ReadValue --> Weak{"最大光值 <= 阈值?"}
+    Weak -- "连续超过 30 次" --> NoBall["回复 -1"]
+    Weak -- "否" --> Reply["回复通道号"]
     Direct --> Fail{"I2C 失败?"}
     Fail -- "busy" --> Recover["恢复 I2C2 总线"]
     Recover --> ReplyBusy["回复 busy 状态和 i2cerr"]
@@ -672,8 +679,8 @@ BNO085
 ```text
 USART6: cmd_infred *CRC
   -> AppPiComm
-  -> BspBe1732_ReadStrongestChannel()
-  -> I2C2 读取 BE-1732
+  -> BspBe1732_ReadFilteredChannel()
+  -> I2C2 读取 BE-1732 最强通道和最大光值
   -> USART6: cmd_infred <channel> *CRC
 ```
 

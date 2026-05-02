@@ -424,7 +424,24 @@ HAL_StatusTypeDef BspChassis_SetPolarSpeedAngleHold(float move_direction_deg,
                                                     float current_yaw_deg,
                                                     int16_t max_current)
 {
-    float ccw_rpm = BspChassis_CalcAngleSpeed(target_yaw_deg, current_yaw_deg);
+    return BspChassis_SetPolarSpeedAngleHoldGyro(move_direction_deg,
+                                                 move_rpm,
+                                                 target_yaw_deg,
+                                                 current_yaw_deg,
+                                                 0.0f,
+                                                 max_current);
+}
+
+HAL_StatusTypeDef BspChassis_SetPolarSpeedAngleHoldGyro(float move_direction_deg,
+                                                        float move_rpm,
+                                                        float target_yaw_deg,
+                                                        float current_yaw_deg,
+                                                        float gyro_z_deg_s,
+                                                        int16_t max_current)
+{
+    float ccw_rpm = BspChassis_CalcAngleSpeedGyro(target_yaw_deg,
+                                                  current_yaw_deg,
+                                                  gyro_z_deg_s);
 
     return BspChassis_SetPolarSpeed(move_direction_deg,
                                     move_rpm,

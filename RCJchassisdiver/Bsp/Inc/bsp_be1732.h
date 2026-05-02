@@ -28,6 +28,14 @@ extern "C" {
 #define BSP_BE1732_I2C_READY_TRIALS         2U
 #endif
 
+#ifndef BSP_BE1732_NO_BALL_VALUE_THRESHOLD
+#define BSP_BE1732_NO_BALL_VALUE_THRESHOLD  4U
+#endif
+
+#ifndef BSP_BE1732_NO_BALL_COUNT_LIMIT
+#define BSP_BE1732_NO_BALL_COUNT_LIMIT      30U
+#endif
+
 typedef enum
 {
     BSP_BE1732_MODE_NORMAL = 0,
@@ -38,9 +46,14 @@ HAL_StatusTypeDef BspBe1732_Init(void);
 HAL_StatusTypeDef BspBe1732_ReadCommand(uint8_t command, uint8_t *value);
 HAL_StatusTypeDef BspBe1732_ReadChannelValue(uint8_t channel, uint8_t *value);
 HAL_StatusTypeDef BspBe1732_ReadStrongestChannel(uint8_t *channel);
+HAL_StatusTypeDef BspBe1732_ReadStrongestValue(uint8_t *value);
+HAL_StatusTypeDef BspBe1732_ReadFilteredChannel(int16_t *channel);
+uint8_t BspBe1732_GetNoBallValueThreshold(void);
+HAL_StatusTypeDef BspBe1732_SetNoBallValueThreshold(uint8_t threshold);
 HAL_StatusTypeDef BspBe1732_SetMode(BspBe1732Mode mode);
 BspBe1732Mode BspBe1732_GetMode(void);
 uint32_t BspBe1732_GetLastI2cError(void);
+uint32_t BspBe1732_GetLastFlashError(void);
 
 #ifdef __cplusplus
 }

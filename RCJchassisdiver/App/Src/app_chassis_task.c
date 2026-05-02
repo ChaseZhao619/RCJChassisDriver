@@ -318,11 +318,12 @@ static HAL_StatusTypeDef DriveDkMotor(float yaw_deg, float gyro_z_deg_s)
 
     if (app_dkmotor_head_lock != 0U)
     {
-        return BspChassis_SetPolarSpeedAngleHold(app_dkmotor_angle_deg,
-                                                 app_dkmotor_speed_rpm,
-                                                 app_target_yaw_deg,
-                                                 yaw_deg,
-                                                 BSP_CHASSIS_ODOM_MAX_CURRENT);
+        return BspChassis_SetPolarSpeedAngleHoldGyro(app_dkmotor_angle_deg,
+                                                     app_dkmotor_speed_rpm,
+                                                     app_target_yaw_deg,
+                                                     yaw_deg,
+                                                     gyro_z_deg_s,
+                                                     BSP_CHASSIS_ODOM_MAX_CURRENT);
     }
 
     if (IsYawAtTarget(app_target_yaw_deg, yaw_deg) == 0U)

@@ -49,6 +49,18 @@
             }
         },
         {
+            "name": "Host App: Run GUI",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "${workspaceFolder}/build/host/debug/RCJappforchase/rcj_appforchase",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Host App: build Debug",
+            "presentation": {
+                "group": "Host App",
+                "order": 2
+            }
+        },
+        {
             "name": "Host App: Run Frame Example",
             "type": "cppdbg",
             "request": "launch",
@@ -66,7 +78,7 @@
             "preLaunchTask": "Host App: build Debug",
             "presentation": {
                 "group": "Host App",
-                "order": 2
+                "order": 3
             }
         }
     ]

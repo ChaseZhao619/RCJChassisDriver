@@ -361,7 +361,9 @@ static void HandlePayload(char *payload)
     uint8_t dis_speed_profile;
     uint8_t tqdj_speed_percent;
     uint8_t tqdj_reverse;
-    uint8_t infred_channel;
+    uint8_t red_value;
+    uint8_t red_value_threshold;
+    int16_t infred_channel;
     uint8_t xq_detected;
     uint8_t conmotion_enabled;
     BspBe1732Mode infred_mode;
@@ -565,6 +567,67 @@ static void HandlePayload(char *payload)
         return;
     }
 
+    if (strncmp(payload, "cmd_redzhi", 10U) == 0)
+    {
+        cursor = payload + 10U;
+        if (EnsureLineEnded(cursor) == 0U)
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = BspBe1732_ReadStrongestValue(&red_value);
+        if (status == HAL_OK)
+        {
+            (void)snprintf(response,
+                           sizeof(response),
+                           "cmd_redzhi %u",
+                           red_value);
+            SendPayloadWithCrc(response);
+        }
+        else
+        {
+            (void)snprintf(response,
+                           sizeof(response),
+                           "cmd_redzhi busy %u %08lX",
+                           (unsigned int)status,
+                           BspBe1732_GetLastI2cError());
+            SendPayloadWithCrc(response);
+        }
+        return;
+    }
+
+    if (strncmp(payload, "cmd_xgred", 9U) == 0)
+    {
+        cursor = payload + 9U;
+        if ((ReadUint8(&cursor, &red_value_threshold) == 0U) ||
+            (EnsureLineEnded(cursor) == 0U))
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+
+        status = BspBe1732_SetNoBallValueThreshold(red_value_threshold);
+        if (status == HAL_OK)
+        {
+            (void)snprintf(response,
+                           sizeof(response),
+                           "cmd_xgred ok %u",
+                           BspBe1732_GetNoBallValueThreshold());
+            SendPayloadWithCrc(response);
+        }
+        else
+        {
+            (void)snprintf(response,
+                           sizeof(response),
+                           "cmd_xgred busy %u %08lX",
+                           (unsigned int)status,
+                           BspBe1732_GetLastFlashError());
+            SendPayloadWithCrc(response);
+        }
+        return;
+    }
+
     if (strncmp(payload, "cmd_dct", 7U) == 0)
     {
         cursor = payload + 7U;
@@ -707,12 +770,12 @@ static void HandlePayload(char *payload)
             return;
         }
 
-        status = BspBe1732_ReadStrongestChannel(&infred_channel);
+        status = BspBe1732_ReadFilteredChannel(&infred_channel);
         if (status == HAL_OK)
         {
             (void)snprintf(response,
                            sizeof(response),
-                           "cmd_infred %u",
+                           "cmd_infred %d",
                            infred_channel);
             SendPayloadWithCrc(response);
         }

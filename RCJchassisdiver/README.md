@@ -53,7 +53,7 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 ├── CMakeLists.txt                # 工程顶层 CMake 配置
 ├── CMakePresets.json             # Debug/Release 构建预设
 ├── RCJchassisdiver.ioc           # STM32CubeMX 工程配置
-├── STM32F407XX_FLASH.ld          # 链接脚本
+├── STM32F407XX_FLASH.ld          # 链接脚本，保留最后 128K Flash sector 存放运行参数
 └── startup_stm32f407xx.s         # 启动文件
 ```
 
@@ -245,7 +245,7 @@ err arg *....
 
 ### `cmd_dkmotor`
 
-进入底盘持续速度控制模式。该模式不做加减速规划，只使用轮速闭环；需要停止时发送速度 `0`。
+进入底盘持续速度控制模式。该模式不做加减速规划，使用轮速闭环和车头角度保持；需要停止时发送速度 `0`。
 
 ```text
 cmd_dkmotor <speed_percent> <move_angle_deg> [head_lock] *<CRC16>
@@ -255,7 +255,7 @@ cmd_dkmotor <speed_percent> <move_angle_deg> [head_lock] *<CRC16>
 
 - `speed_percent`：速度映射值，范围 `0-100`。当前 `100` 对应 `APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S`，默认 `650 mm/s`。
 - `move_angle_deg`：运动角度，单位度，`0` 为小车前方，`90` 为小车左方。
-- `head_lock`：锁头使能，可省略，默认 `1`。`1` 表示保持当前车头方向不变，按运动角度整体平移；`0` 表示先转到对应角度，再朝小车前方直行。
+- `head_lock`：锁头使能，可省略，默认 `1`。`1` 表示保持当前车头方向不变，按运动角度整体平移；`0` 表示先转到对应角度，再朝小车前方直行。两种模式都会使用角度环。
 
 示例：
 
@@ -447,7 +447,7 @@ cmd_request <dx_cm> <dy_cm> <dyaw_deg> <yaw_deg> *<CRC16>
 
 ### `cmd_infred`
 
-查询 BE-1732 红外复眼当前模式下最强红外信号所在通道。命令无参数，返回值为 `1-7`。
+查询 BE-1732 红外复眼当前模式下最强红外信号所在通道。命令无参数，正常返回 `1-7`；最大光值连续 30 次 `<=4` 时返回 `-1`，表示未检测到可靠红外信号。
 
 ```text
 cmd_infred *8E0C
@@ -464,12 +464,48 @@ cmd_infred <channel> *<CRC16>
 ```text
 cmd_infred 1 *D98F
 cmd_infred 7 *B949
+cmd_infred -1 *<CRC16>
 ```
 
 如果 I2C 读取失败：
 
 ```text
 cmd_infred busy <status> <i2cerr> *<CRC16>
+```
+
+### `cmd_redzhi`
+
+查询 BE-1732 当前模式下的最大光值，对应手册命令 `9`。
+
+```text
+cmd_redzhi *58ED
+```
+
+回复格式：
+
+```text
+cmd_redzhi <value> *<CRC16>
+```
+
+### `cmd_xgred`
+
+修改无红外判断的最大光值比较阈值，默认值为 `4`。阈值会写入 STM32 内部 Flash 最后一个 sector，复位和断电后仍然生效。
+
+```text
+cmd_xgred <value> *<CRC16>
+cmd_xgred 6 *DCC5
+```
+
+成功回复：
+
+```text
+cmd_xgred ok <value> *<CRC16>
+```
+
+如果 Flash 写入失败：
+
+```text
+cmd_xgred busy <status> <flasherr> *<CRC16>
 ```
 
 ### `cmd_infred_mode`

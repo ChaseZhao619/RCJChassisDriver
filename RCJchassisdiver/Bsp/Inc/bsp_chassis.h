@@ -190,6 +190,12 @@ HAL_StatusTypeDef BspChassis_SetPolarSpeedAngleHold(float move_direction_deg,
                                                     float target_yaw_deg,
                                                     float current_yaw_deg,
                                                     int16_t max_current);
+HAL_StatusTypeDef BspChassis_SetPolarSpeedAngleHoldGyro(float move_direction_deg,
+                                                        float move_rpm,
+                                                        float target_yaw_deg,
+                                                        float current_yaw_deg,
+                                                        float gyro_z_deg_s,
+                                                        int16_t max_current);
 HAL_StatusTypeDef BspChassis_SetBodySpeed(float forward_rpm,
                                           float left_rpm,
                                           float ccw_rpm,
