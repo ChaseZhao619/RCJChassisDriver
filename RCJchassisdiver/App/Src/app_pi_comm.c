@@ -13,16 +13,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+/*
+ * 树莓派 USART6 行协议。
+ * RX 中断仅把单字节写入 SPSC 环形缓冲区，主循环完成组行、CRC 校验、参数解析和回复。
+ * 所有执行器命令必须先通过完整行和 CRC 校验。协议格式及命令表见 App/README.md。
+ */
+/* UART 路由及固定缓冲区容量。扩大缓冲区会增加静态 RAM，占用缩小则降低最大帧长度。 */
 #define APP_PI_COMM_UART_ID BSP_USART_6
 #define APP_PI_COMM_RX_RING_SIZE 256U
 #define APP_PI_COMM_LINE_SIZE 96U
 
-static uint8_t app_pi_rx_byte;
-static volatile uint8_t app_pi_rx_ring[APP_PI_COMM_RX_RING_SIZE];
-static volatile uint16_t app_pi_rx_head;
-static volatile uint16_t app_pi_rx_tail;
-static char app_pi_line[APP_PI_COMM_LINE_SIZE];
+static uint8_t app_pi_rx_byte; /* HAL 单字节中断接收目标。 */
+static volatile uint8_t app_pi_rx_ring[APP_PI_COMM_RX_RING_SIZE]; /* ISR 写、主循环读。 */
+static volatile uint16_t app_pi_rx_head; /* ISR 拥有的下一写入位置。 */
+static volatile uint16_t app_pi_rx_tail; /* 主循环拥有的下一读取位置。 */
+static char app_pi_line[APP_PI_COMM_LINE_SIZE]; /* 去掉 CR/LF 后的当前行。 */
 static uint16_t app_pi_line_len;
+/* 保存已接受命令的原参数，使异步 done 回复能与对应 ok 回复关联。 */
 static char app_pi_done_dis_args[APP_PI_COMM_LINE_SIZE];
 static char app_pi_done_turn_args[APP_PI_COMM_LINE_SIZE];
 static uint8_t app_pi_done_dis_valid;
@@ -30,11 +37,13 @@ static uint8_t app_pi_done_turn_valid;
 
 static void StartReceive(void)
 {
+    /* 每次完成或出错后重新挂接一个字节；当前忽略 HAL 返回值，失败时不会在此上报。 */
     (void)HAL_UART_Receive_IT(&huart6, &app_pi_rx_byte, 1U);
 }
 
 uint16_t AppPiComm_Crc16Ccitt(const uint8_t *data, uint16_t size)
 {
+    /* CCITT-FALSE：init=FFFF, poly=1021, 非反射；NULL 输入返回初值。 */
     uint16_t crc = 0xFFFFU;
     uint16_t i;
     uint8_t bit;
@@ -88,6 +97,7 @@ static char *TrimRight(char *text)
 
 static uint8_t ReadFloat(char **cursor, float *value)
 {
+    /* strtof 接受的数字语法由 C 库决定；调用者仍需 EnsureLineEnded 拒绝尾随内容。 */
     char *endptr;
 
     if ((cursor == NULL) || (*cursor == NULL) || (value == NULL))
@@ -108,6 +118,7 @@ static uint8_t ReadFloat(char **cursor, float *value)
 
 static uint8_t ReadUint8(char **cursor, uint8_t *value)
 {
+    /* 显式拒绝负号并限制到 0..255；业务层再检查百分比或布尔值范围。 */
     char *endptr;
     unsigned long parsed_value;
 
@@ -135,6 +146,7 @@ static uint8_t ReadUint8(char **cursor, uint8_t *value)
 
 static void SendPayloadWithCrc(const char *payload)
 {
+    /* 同步发送，最长阻塞 10 ms；高频回复会直接占用主循环时间。 */
     char tx[APP_PI_COMM_LINE_SIZE];
     uint16_t crc;
     int length;
@@ -193,6 +205,7 @@ static void SendCommandError(char *line)
 
 static uint8_t ValidateAndSplitCrc(char *line, char **payload)
 {
+    /* 原地把最后一个 '*' 改为 NUL；CRC 仅覆盖裁剪末尾空白后的 payload。 */
     char *star;
     char *crc_text;
     char *endptr;
@@ -346,6 +359,10 @@ static void SendTqdjCommandReply(const char *state, uint8_t speed_percent, uint8
 
 static void HandlePayload(char *payload)
 {
+    /*
+     * 命令分派顺序需避免前缀歧义。每个分支完整验证参数和行尾后才调用 App/Bsp API，
+     * HAL_OK/HAL_BUSY 被映射为协议回复；未知命令统一返回 err cmd。
+     */
     char *cursor;
     float x_cm;
     float y_cm;
@@ -827,6 +844,7 @@ static void HandlePayload(char *payload)
 
 static void ProcessLine(char *line)
 {
+    /* CRC 失败时尽量提取命令名回复 "<cmd> eror"，但绝不执行 payload。 */
     char *payload = NULL;
 
     if (ValidateAndSplitCrc(line, &payload) == 0U)
@@ -840,6 +858,7 @@ static void ProcessLine(char *line)
 
 static uint8_t PopByte(uint8_t *byte)
 {
+    /* 单生产者/单消费者环形缓冲区：ISR 推进 head，主循环推进 tail。 */
     if ((byte == NULL) || (app_pi_rx_head == app_pi_rx_tail))
     {
         return 0U;
@@ -852,6 +871,7 @@ static uint8_t PopByte(uint8_t *byte)
 
 static void SendDoneEvent(void)
 {
+    /* 将底盘任务单槽事件转换为异步协议 done；消费后不会重复发送。 */
     switch (AppChassisTask_ConsumeDoneEvent())
     {
     case APP_CHASSIS_TASK_DONE_DIS:
@@ -898,6 +918,7 @@ void AppPiComm_Init(void)
 
 void AppPiComm_Task(void)
 {
+    /* CR 被忽略，LF 结束一帧；超长行整行丢弃，避免截断后误执行。 */
     uint8_t byte;
 
     SendDoneEvent();
@@ -939,6 +960,7 @@ void AppPiComm_Task(void)
 
 void AppPiComm_OnUartRxCplt(UART_HandleTypeDef *huart)
 {
+    /* 缓冲区满时保留旧数据并丢弃新字节；中断路径不发送错误回复。 */
     uint16_t next_head;
 
     if ((huart == NULL) || (huart->Instance != USART6))
@@ -958,6 +980,7 @@ void AppPiComm_OnUartRxCplt(UART_HandleTypeDef *huart)
 
 void AppPiComm_OnUartError(UART_HandleTypeDef *huart)
 {
+    /* 仅重新启动接收，错误码和丢失字节由 HAL/上位机重发机制处理。 */
     if ((huart == NULL) || (huart->Instance != USART6))
     {
         return;

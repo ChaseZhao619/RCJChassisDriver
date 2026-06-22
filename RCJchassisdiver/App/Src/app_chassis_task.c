@@ -5,37 +5,43 @@
 #include "bsp_motor.h"
 #include <math.h>
 
+/*
+ * 底盘应用状态机。
+ * 本模块保存“当前唯一活动命令”，把相对位移/绝对转角/持续运动转换为 Bsp 层调用，
+ * 并在到位和停稳后产生单槽完成事件。新运动命令会覆盖旧命令，不支持命令排队。
+ * 坐标、状态转换和调参顺序见 App/README.md。
+ */
 typedef enum
 {
-    APP_CHASSIS_MODE_WAIT_IMU = 0,
-    APP_CHASSIS_MODE_IDLE,
-    APP_CHASSIS_MODE_MOVE,
-    APP_CHASSIS_MODE_TURN,
-    APP_CHASSIS_MODE_DKMOTOR,
+    APP_CHASSIS_MODE_WAIT_IMU = 0, /* yaw 无效：取消活动命令并保持停车。 */
+    APP_CHASSIS_MODE_IDLE,         /* 无活动命令：零平移并保持目标 yaw。 */
+    APP_CHASSIS_MODE_MOVE,         /* cmd_dis：沿世界坐标线段移动。 */
+    APP_CHASSIS_MODE_TURN,         /* cmd_turn：原地转到绝对 yaw。 */
+    APP_CHASSIS_MODE_DKMOTOR,      /* cmd_dkmotor：持续运动，无自动完成事件。 */
 } AppChassisMode;
 
 static AppChassisMode app_mode;
-static float app_target_x_mm;
-static float app_target_y_mm;
-static float app_target_yaw_deg;
-static float app_segment_start_x_mm;
-static float app_segment_start_y_mm;
-static uint32_t app_stop_tick;
-static uint32_t app_hold_tick;
-static uint8_t app_odom_ready;
-static uint8_t app_move_reached;
-static uint8_t app_hold_started;
-static AppChassisTaskDoneEvent app_active_command;
-static AppChassisTaskDoneEvent app_done_event;
+static float app_target_x_mm;       /* MOVE 的世界坐标目标 X [mm]。 */
+static float app_target_y_mm;       /* MOVE 的世界坐标目标 Y [mm]。 */
+static float app_target_yaw_deg;    /* IDLE/MOVE/TURN/DKMOTOR 的航向目标 [deg]。 */
+static float app_segment_start_x_mm;/* 当前 MOVE 线段起点 X [mm]。 */
+static float app_segment_start_y_mm;/* 当前 MOVE 线段起点 Y [mm]。 */
+static uint32_t app_stop_tick;      /* 连续满足停车转速阈值的起始时刻 [ms]。 */
+static uint32_t app_hold_tick;      /* MOVE 到点后开始航向保持的时刻 [ms]。 */
+static uint8_t app_odom_ready;      /* 已用有效 yaw 初始化里程计。 */
+static uint8_t app_move_reached;    /* MOVE 已满足位置或投影进度条件。 */
+static uint8_t app_hold_started;    /* MOVE 到点保持计时已开始。 */
+static AppChassisTaskDoneEvent app_active_command; /* 结束时应生成哪类事件。 */
+static AppChassisTaskDoneEvent app_done_event;     /* 等待通信任务消费的单槽事件。 */
 static float app_request_last_x_mm;
 static float app_request_last_y_mm;
 static float app_request_last_yaw_deg;
 static uint8_t app_request_last_valid;
-static uint8_t app_motion_enabled;
-static float app_dkmotor_speed_rpm;
-static float app_dkmotor_angle_deg;
-static uint8_t app_dkmotor_head_lock;
-static uint8_t app_move_profile;
+static uint8_t app_motion_enabled;  /* 全局软件运动许可。 */
+static float app_dkmotor_speed_rpm; /* 百分比换算后的电机轴目标 [rpm]。 */
+static float app_dkmotor_angle_deg; /* 持续运动方向 [deg]。 */
+static uint8_t app_dkmotor_head_lock; /* 1=保持下发时航向，0=转向后前进。 */
+static uint8_t app_move_profile;    /* 当前 MOVE 的 SHARP/NORMAL/SMOOTH 档位。 */
 
 static const float app_pi = 3.14159265358979323846f;
 
@@ -51,6 +57,7 @@ static int16_t Abs16(int16_t value)
 
 static uint8_t AreChassisMotorsStopped(void)
 {
+    /* 电机缺少反馈或 200 ms 内离线均不能判定为已停，避免误报完成。 */
     uint8_t can_id;
 
     for (can_id = 1U; can_id <= BSP_MOTOR_CHASSIS_COUNT; can_id++)
@@ -92,6 +99,7 @@ static float LimitFloat(float value, float limit)
 
 static uint8_t IsStoppedStable(uint32_t now)
 {
+    /* 任一周期不满足停车条件就重新计时，要求连续稳定而非瞬时过零。 */
     if (AreChassisMotorsStopped() != 0U)
     {
         if (app_stop_tick == 0U)
@@ -110,6 +118,7 @@ static uint8_t IsStoppedStable(uint32_t now)
 
 static void SetMode(AppChassisMode mode)
 {
+    /* 模式切换清除停稳/保持计时并复位控制器，防止旧积分带入新命令。 */
     app_mode = mode;
     app_stop_tick = 0U;
     app_hold_tick = 0U;
@@ -119,6 +128,7 @@ static void SetMode(AppChassisMode mode)
 
 static void MarkActiveCommandDone(void)
 {
+    /* 完成事件只有一个存储槽；通信任务应及时 Consume。 */
     if (app_active_command != APP_CHASSIS_TASK_DONE_NONE)
     {
         app_done_event = app_active_command;
@@ -136,6 +146,10 @@ static uint8_t IsYawAtTarget(float target_yaw_deg, float current_yaw_deg)
 
 static float CalcSegmentProgress(const BspChassisOdomPose *pose)
 {
+    /*
+     * 将当前位置投影到起点->目标向量：起点为 0，目标为 1，越过目标可大于 1。
+     * 该判据允许存在少量横向误差，横向误差由 DriveAlongSegmentGyro 单独纠正。
+     */
     float total_dx = app_target_x_mm - app_segment_start_x_mm;
     float total_dy = app_target_y_mm - app_segment_start_y_mm;
     float done_dx;
@@ -167,6 +181,7 @@ static uint8_t IsMoveTargetReached(const BspChassisOdomPose *pose)
 
 static float CalcProfileMaxSpeed(const BspChassisOdomPose *pose)
 {
+    /* 根据沿程进度生成对称的起停速度上限；实际沿线速度还受位置 KP 限制。 */
     float total_dx = app_target_x_mm - app_segment_start_x_mm;
     float total_dy = app_target_y_mm - app_segment_start_y_mm;
     float progress;
@@ -217,6 +232,10 @@ static HAL_StatusTypeDef DriveAlongSegmentGyro(const BspChassisOdomPose *pose,
                                                float gyro_z_deg_s,
                                                float max_speed_mm_s)
 {
+    /*
+     * ux/uy 为线段切向单位向量，nx/ny 为左法向；当前位置被分解为沿线进度和横向误差。
+     * 切向速度负责到达终点，法向 P 控制负责回线，合成世界速度后再转到车体坐标。
+     */
     float total_dx = app_target_x_mm - app_segment_start_x_mm;
     float total_dy = app_target_y_mm - app_segment_start_y_mm;
     float total_dist = sqrtf((total_dx * total_dx) + (total_dy * total_dy));
@@ -311,6 +330,7 @@ static HAL_StatusTypeDef HoldTargetYaw(float yaw_deg, float gyro_z_deg_s)
 
 static HAL_StatusTypeDef DriveDkMotor(float yaw_deg, float gyro_z_deg_s)
 {
+    /* head_lock=0 的语义是先把车头转到 angle，再沿车体前方运动，而非世界方向平移。 */
     if (app_dkmotor_speed_rpm <= 0.01f)
     {
         return BspChassis_Stop();
@@ -346,6 +366,7 @@ static HAL_StatusTypeDef DriveDkMotor(float yaw_deg, float gyro_z_deg_s)
 
 static void HoldReachedMove(uint32_t now, float yaw_deg, float gyro_z_deg_s)
 {
+    /* 到点后保持 yaw；满足最小保持时间且停稳，或达到最大等待时间，才发布 done。 */
     (void)HoldTargetYaw(yaw_deg, gyro_z_deg_s);
 
     if (app_hold_started == 0U)
@@ -438,6 +459,7 @@ HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm,
                                                   float y_cm,
                                                   uint8_t speed_profile)
 {
+    /* 输入是相对世界坐标 [cm]；在此转换为里程计使用的绝对目标 [mm]。 */
     const BspChassisOdomPose *pose;
 
     if ((app_motion_enabled == 0U) ||
@@ -464,6 +486,7 @@ HAL_StatusTypeDef AppChassisTask_CommandDistanceCm(float x_cm,
 
 HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg)
 {
+    /* TURN 使用绝对角度；最短旋转方向由 BspChassis_GetAngleErrorDeg() 决定。 */
     if ((app_motion_enabled == 0U) || (app_odom_ready == 0U))
     {
         return HAL_BUSY;
@@ -482,6 +505,7 @@ HAL_StatusTypeDef AppChassisTask_CommandDkMotor(uint8_t speed_percent,
                                                 float move_angle_deg,
                                                 uint8_t head_lock)
 {
+    /* 百分比先映射到线速度 [mm/s]，再按轮径/减速比换算为电机轴 rpm。 */
     const BspChassisOdomPose *pose;
     float speed_mm_s;
 
@@ -520,6 +544,7 @@ HAL_StatusTypeDef AppChassisTask_GetRequestDelta(float *dx_cm,
                                                  float *dyaw_deg,
                                                  float *yaw_deg)
 {
+    /* 这是有副作用的采样接口：每次成功读取都会推进“上次请求”基准。 */
     const BspChassisOdomPose *pose;
 
     if ((dx_cm == NULL) || (dy_cm == NULL) || (dyaw_deg == NULL) || (yaw_deg == NULL))
@@ -557,6 +582,7 @@ HAL_StatusTypeDef AppChassisTask_GetRequestDelta(float *dx_cm,
 
 AppChassisTaskDoneEvent AppChassisTask_ConsumeDoneEvent(void)
 {
+    /* read-and-clear；同一事件只能被一个消费者读取一次。 */
     AppChassisTaskDoneEvent event = app_done_event;
 
     app_done_event = APP_CHASSIS_TASK_DONE_NONE;
@@ -565,6 +591,7 @@ AppChassisTaskDoneEvent AppChassisTask_ConsumeDoneEvent(void)
 
 void AppChassisTask_OnYawZero(float yaw_deg)
 {
+    /* 只替换姿态参考，不清零已经累计的平面位置。 */
     const BspChassisOdomPose *pose;
     float x_mm;
     float y_mm;
@@ -595,6 +622,7 @@ void AppChassisTask_Task(uint8_t yaw_valid,
                          uint8_t gyro_valid,
                          float gyro_z_deg_s)
 {
+    /* IMU yaw 是里程计和航向环的硬前置条件；失效时不尝试盲走。 */
     uint32_t now = HAL_GetTick();
     const BspChassisOdomPose *pose;
 
