@@ -4,6 +4,7 @@
 #include "bsp_motor.h"
 #include "bsp_usart.h"
 
+/* 按 45 deg 间隔执行平移测试并保持初始 yaw，用于检查轮序、方向和运动耦合。 */
 typedef struct
 {
     float move_direction_deg;

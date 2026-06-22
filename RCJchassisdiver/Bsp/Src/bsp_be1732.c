@@ -2,6 +2,11 @@
 
 #include "i2c.h"
 
+/*
+ * BE1732 红外球传感器驱动。
+ * ReadFilteredChannel() 使用“信号阈值 + 连续计数”过滤短时丢球，并在确认前保持上次通道。
+ * 阈值可持久化到 Flash；Flash 地址/扇区必须与链接脚本保留区严格一致。
+ */
 static uint32_t be1732_last_i2c_error;
 static uint32_t be1732_last_flash_error;
 static uint8_t be1732_recovering;
@@ -11,6 +16,7 @@ static uint8_t be1732_last_valid_channel;
 static uint8_t be1732_no_ball_value_threshold = BSP_BE1732_NO_BALL_VALUE_THRESHOLD;
 static uint8_t be1732_param_loaded_valid;
 
+/* 参数区占用 STM32F4 Sector 7。更换 MCU/链接脚本时必须同步核对，防止擦除程序。 */
 #define BSP_BE1732_PARAM_FLASH_ADDR          0x08060000UL
 #define BSP_BE1732_PARAM_FLASH_SECTOR        FLASH_SECTOR_7
 #define BSP_BE1732_PARAM_MAGIC               0xBE1732A5UL

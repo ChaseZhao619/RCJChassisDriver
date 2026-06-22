@@ -3,6 +3,7 @@
 #include "bsp_chassis.h"
 #include "bsp_usart.h"
 
+/* USART6 交互式偏航环测试；先架空确认回正方向，再落地调整角度环参数。 */
 static uint8_t angle_test_ready;
 static float angle_test_zero_yaw_deg;
 static float angle_test_target_yaw_deg;

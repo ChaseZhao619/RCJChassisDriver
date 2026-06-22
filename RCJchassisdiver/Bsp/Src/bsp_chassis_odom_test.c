@@ -6,12 +6,17 @@
 #include "bsp_usart.h"
 #include <math.h>
 
+/*
+ * 场地矩形路径测试：沿线速度与横向纠偏速度分解后转换到车体坐标。
+ * 启用前必须核对场地尺寸、车体直径、边界余量以及初始位姿，现场保留急停手段。
+ */
 #define FIELD_PATH_X_MIN (BSP_CHASSIS_ODOM_TEST_LINE_MARGIN_MM)
 #define FIELD_PATH_Y_MIN (BSP_CHASSIS_ODOM_TEST_LINE_MARGIN_MM)
 #define FIELD_PATH_X_MAX (BSP_CHASSIS_ODOM_TEST_FIELD_LENGTH_MM - BSP_CHASSIS_DIAMETER_MM - BSP_CHASSIS_ODOM_TEST_LINE_MARGIN_MM)
 #define FIELD_PATH_Y_MAX (BSP_CHASSIS_ODOM_TEST_FIELD_WIDTH_MM - BSP_CHASSIS_DIAMETER_MM - BSP_CHASSIS_ODOM_TEST_LINE_MARGIN_MM)
 
 static const BspChassisOdomWaypoint odom_path[] = {
+    /* x [mm], y [mm], yaw [deg], 最大速度 [mm/s], 到点保持 [ms]。 */
     {0.0f, 0.0f, 0.0f, 0.0f, 300U},
     {FIELD_PATH_X_MIN, FIELD_PATH_Y_MIN, 0.0f, 180.0f, 300U},
     {FIELD_PATH_X_MAX, FIELD_PATH_Y_MIN, 0.0f, BSP_CHASSIS_ODOM_TEST_BORDER_SPEED_MM_S, 300U},

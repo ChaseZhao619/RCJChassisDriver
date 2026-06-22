@@ -1,5 +1,6 @@
 #include "bsp_dct.h"
 
+/* JD1 当前采用高电平使能。若外围电路极性变更，应同时更新此处和接口注释。 */
 static uint8_t dct_enabled;
 
 HAL_StatusTypeDef BspDct_Init(void)

@@ -10,6 +10,7 @@ extern "C" {
 #include <stdint.h>
 
 #ifndef BSP_USART_PRINTF_BUFFER_SIZE
+/* 单次格式化打印的栈缓冲区 [byte]；增大会增加栈占用，超长输出会被截断。 */
 #define BSP_USART_PRINTF_BUFFER_SIZE 256U
 #endif
 
@@ -19,11 +20,13 @@ typedef enum
     BSP_USART_6 = 6
 } BspUsartId;
 
+/* 当前仅映射 USART1/USART6；无效编号返回 NULL，调用者必须检查。 */
 UART_HandleTypeDef *BspUsart_GetHandle(uint8_t usart_id);
 HAL_StatusTypeDef BspUsart_Transmit(uint8_t usart_id, const uint8_t *data, uint16_t size, uint32_t timeout);
 HAL_StatusTypeDef BspUsart_Receive(uint8_t usart_id, uint8_t *data, uint16_t size, uint32_t timeout);
 HAL_StatusTypeDef BspUsart_ReceiveIT(uint8_t usart_id, uint8_t *data, uint16_t size);
 
+/* 同步格式化并发送；返回格式化字符数或负错误码，不适合高频硬实时路径。 */
 int Printf(uint8_t usart_id, const char *format, ...);
 int VPrintf(uint8_t usart_id, const char *format, va_list args);
 

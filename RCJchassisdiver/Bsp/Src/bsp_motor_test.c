@@ -3,6 +3,7 @@
 #include "bsp_motor.h"
 #include "bsp_usart.h"
 
+/* 依次给 1~5 号电机施加正/负小电流，用于核对 CAN ID、安装方向和反馈符号。 */
 #if BSP_MOTOR_TEST_ENABLE
 typedef struct
 {

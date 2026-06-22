@@ -2,6 +2,11 @@
 
 #include "tim.h"
 
+/*
+ * TIM4 CH1 的 ESC PWM 输出。
+ * API 使用微秒脉宽并在 INIT/RUN 范围内限幅；这要求定时器计数分辨率与换算逻辑一致。
+ * 百分比是脉宽线性映射，不代表转速、推力或功率的线性百分比。
+ */
 static uint16_t suction_motor_pulse_us = BSP_SUCTION_MOTOR_INIT_PULSE_US;
 static uint8_t suction_motor_speed_percent;
 static uint8_t suction_motor_started;

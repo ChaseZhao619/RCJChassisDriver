@@ -3,6 +3,11 @@
 #include "usart.h"
 #include <stdio.h>
 
+/*
+ * USART HAL 适配及格式化输出。
+ * Transmit/Receive 为同步阻塞调用，timeout 直接决定最坏阻塞时间；控制周期内应限制日志频率。
+ * Printf 使用固定长度栈缓冲区，超出 BSP_USART_PRINTF_BUFFER_SIZE 的内容会被截断。
+ */
 UART_HandleTypeDef *BspUsart_GetHandle(uint8_t usart_id)
 {
     switch (usart_id)

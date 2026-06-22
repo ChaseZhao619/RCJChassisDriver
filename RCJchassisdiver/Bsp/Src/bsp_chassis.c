@@ -3,6 +3,11 @@
 #include "bsp_motor.h"
 #include <math.h>
 
+/*
+ * 四轮底盘运动学与控制器实现。
+ * 调用链为：车体/极坐标目标 -> 四轮目标 rpm -> 各轮 PID+前馈 -> CAN 电流控制量。
+ * 机械方向、轮速环、偏航环和耦合补偿参数集中在 bsp_chassis.h；调参顺序见 Bsp/README.md。
+ */
 static BspChassisMotorCurrent chassis_last_current;
 static BspChassisWheelSpeedTarget chassis_last_speed_target;
 static const float chassis_pi = 3.14159265358979323846f;
@@ -21,10 +26,10 @@ static const int8_t chassis_motor_fb_dir[4] = {
 
 typedef struct
 {
-    float integral;
-    float last_error;
-    uint32_t last_tick;
-    uint8_t initialized;
+    float integral;       /* 积分状态，受对应 I_LIMIT 限制。 */
+    float last_error;     /* 上次误差，用于离散微分。 */
+    uint32_t last_tick;   /* 上次计算时刻 [ms]，用于计算实际 dt。 */
+    uint8_t initialized;  /* 首帧不计算微分，避免启动冲击。 */
 } ChassisPidState;
 
 static ChassisPidState wheel_speed_pid[4];

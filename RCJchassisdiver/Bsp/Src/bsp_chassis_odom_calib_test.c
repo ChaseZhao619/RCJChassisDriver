@@ -4,6 +4,7 @@
 #include "bsp_chassis_odom.h"
 #include "bsp_usart.h"
 
+/* 固定距离前进/左移标定状态机；以实测距离修正两个 ODOM_SCALE，计算方法见 Bsp/README.md。 */
 typedef enum
 {
     ODOM_CALIB_WAIT_YAW = 0,

@@ -8,6 +8,7 @@ extern "C" {
 #include "main.h"
 #include <stdint.h>
 
+/* BNO085 两个 7-bit I2C 地址，由器件地址选择引脚决定；初始化会探测可用地址。 */
 #define BNO085_I2C_ADDR_LOW  0x4AU
 #define BNO085_I2C_ADDR_HIGH 0x4BU
 
@@ -67,6 +68,7 @@ extern "C" {
 #endif
 #endif
 
+/* SH-2 传感器报告 ID，属于协议常量，不应作为调参项修改。 */
 #define BNO085_ROTATION_VECTOR_REPORT_ID      0x05U
 #define BNO085_ACCELEROMETER_REPORT_ID        0x01U
 #define BNO085_GYROSCOPE_REPORT_ID            0x02U
@@ -88,19 +90,19 @@ typedef struct
 
 typedef struct
 {
-    uint8_t report_id;
-    uint8_t sequence;
-    uint8_t status;
+    uint8_t report_id;       /* SH-2 报告类型。 */
+    uint8_t sequence;        /* 报告序号，可用于判断丢帧。 */
+    uint8_t status;          /* 精度/状态字段，含义见 BNO085 SH-2 手册。 */
     int16_t i_raw;
     int16_t j_raw;
     int16_t k_raw;
     int16_t real_raw;
     int16_t accuracy_raw;
-    float i;
-    float j;
-    float k;
-    float real;
-    float accuracy;
+    float i;                 /* 归一化四元数 i 分量。 */
+    float j;                 /* 归一化四元数 j 分量。 */
+    float k;                 /* 归一化四元数 k 分量。 */
+    float real;              /* 归一化四元数实部。 */
+    float accuracy;          /* 估计角度精度 [rad]。 */
 } Bno085RotationVector;
 
 typedef struct
@@ -158,6 +160,7 @@ HAL_StatusTypeDef Bno085_Init(void);
 void Bno085_HardwareReset(void);
 void Bno085_ClearI2cBus(void);
 HAL_StatusTypeDef Bno085_GetProductId(Bno085ProductId *product_id);
+/* interval_us 为报告周期：减小可提高更新率，但会增加 I2C 和解析负载。 */
 HAL_StatusTypeDef Bno085_EnableReport(uint8_t report_id, uint32_t interval_us);
 HAL_StatusTypeDef Bno085_EnableDefaultReports(uint32_t interval_us);
 HAL_StatusTypeDef Bno085_EnableRotationVector(uint32_t interval_us);
@@ -166,6 +169,7 @@ HAL_StatusTypeDef Bno085_ReadRotationVector(Bno085RotationVector *rotation_vecto
 HAL_StatusTypeDef Bno085_ReadSensorData(Bno085SensorData *sensor_data);
 HAL_StatusTypeDef Bno085_GetYawDegrees(const Bno085RotationVector *rotation_vector, float *yaw_deg);
 HAL_StatusTypeDef Bno085_GetYawDegX100(const Bno085RotationVector *rotation_vector, int32_t *yaw_deg_x100);
+/* 将当前姿态设置为软件偏航零点；不会写入 BNO085 内部标定参数。 */
 HAL_StatusTypeDef Bno085_SetYawZero(const Bno085RotationVector *rotation_vector);
 uint8_t Bno085_IsZeroKeyPressed(void);
 uint8_t Bno085_GetI2cAddress(void);

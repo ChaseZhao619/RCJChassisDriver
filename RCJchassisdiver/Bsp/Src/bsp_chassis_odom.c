@@ -5,6 +5,11 @@
 #include <math.h>
 #include <string.h>
 
+/*
+ * 轮速里程计：将 4 个电机轴转速换算为车体速度，再用外部 yaw 旋转到世界坐标并积分。
+ * 该方法不观测轮胎打滑，长时间运行必然漂移；轮径/减速比决定理论比例，
+ * FORWARD_SCALE/LEFT_SCALE 用实测距离修正。Update() 应以稳定周期持续调用。
+ */
 static const float odom_pi = 3.14159265358979323846f;
 static BspChassisOdomPose odom_pose;
 static uint32_t odom_last_tick;

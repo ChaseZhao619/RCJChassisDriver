@@ -3,6 +3,11 @@
 #include "can.h"
 #include <string.h>
 
+/*
+ * 大疆电机 CAN 传输层。
+ * 本文件只负责协议限幅、打包和反馈累计，不负责机械方向和闭环参数；
+ * 方向在 bsp_chassis.h / bsp_kick_motor.h 中配置，控制器上限应不超过这里的协议上限。
+ */
 static BspMotorFeedback motor_feedback[BSP_MOTOR_COUNT];
 static int16_t motor_current[BSP_MOTOR_COUNT];
 static CAN_HandleTypeDef *motor_can = &hcan1;

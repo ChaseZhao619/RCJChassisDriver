@@ -3,6 +3,7 @@
 #include "bsp_suction_motor.h"
 #include "bsp_usart.h"
 
+/* ESC 解锁后逐级提高 PWM；MAX_PULSE_US 是本测试的额外安全上限。 */
 #if BSP_SUCTION_MOTOR_TEST_ENABLE
 typedef struct
 {

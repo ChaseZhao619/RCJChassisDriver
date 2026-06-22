@@ -2,12 +2,17 @@
 
 #include "bsp_motor.h"
 
+/*
+ * CAN ID 5 功能电机速度闭环。
+ * SetSpeed() 只更新目标，Task() 才按实际时间间隔计算 PID 并发送电流；
+ * 因此 Task 调用不及时会降低控制带宽。调参时先确认 DIR/FB_DIR，再调 KF、KP、KI。
+ */
 typedef struct
 {
-    float integral;
-    float last_error;
-    uint32_t last_tick;
-    uint8_t initialized;
+    float integral;       /* 受 SPEED_I_LIMIT 限制的积分状态。 */
+    float last_error;     /* 上周期转速误差。 */
+    uint32_t last_tick;   /* 上周期 HAL 毫秒时刻。 */
+    uint8_t initialized;  /* 首次进入闭环的微分保护标志。 */
 } BspKickMotorPidState;
 
 static BspKickMotorPidState kick_motor_pid;

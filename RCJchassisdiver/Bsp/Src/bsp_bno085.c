@@ -4,6 +4,12 @@
 #include <math.h>
 #include <string.h>
 
+/*
+ * BNO085 I2C/SHTP/SH-2 协议实现。
+ * 解析比例和报告 ID 是芯片协议常量，不用于实车调参；可调的是 EnableReport() 的报告周期。
+ * 若发生超时，应先检查 INT/NRST/KEY 引脚和 I2C 波形，再考虑增加超时值。
+ */
+/* 单次总线、命令响应和设备就绪超时 [ms]；增大会延长故障路径的阻塞时间。 */
 #define BNO085_I2C_TIMEOUT_MS       30U
 #define BNO085_COMMAND_TIMEOUT_MS   500U
 #define BNO085_I2C_READY_TIMEOUT_MS 100U
