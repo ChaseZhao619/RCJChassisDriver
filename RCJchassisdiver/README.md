@@ -1,19 +1,37 @@
 # RCJchassisdiver
 
-STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 STM32CubeMX 生成的 HAL 初始化代码和 CMake 构建系统，业务层实现了底盘闭环移动、BNO085 姿态读取、CAN 电机控制、吸力电机 PWM 控制、继电器控制，以及面向上位机/树莓派的串口命令协议。
+`RCJchassisdiver` 是 STM32F407 底盘固件工程，负责底盘闭环运动、CAN 电机控制、BNO085 姿态读取、BE1732 红外读取、吸力电机、踢球电机、继电器和面向上位机/树莓派的串口协议。
 
-## 功能概览
+这篇文档是固件主入口。完整串口协议请看 [`App/README.md`](App/README.md)，底层硬件调参请看 [`Bsp/README.md`](Bsp/README.md)。
+
+## 你应该先知道
+
+- 固件分为 `App`、`Bsp`、`Core` 三层：`App` 负责业务状态机，`Bsp` 负责硬件抽象，`Core` 主要来自 STM32CubeMX。
+- 底盘运动依赖 BNO085 yaw。没有有效 yaw 时，运动命令会被拒绝或停止。
+- 上位机/树莓派通过 USART6 发送命令；USART1 默认用于调试打印。
+- 调试运动前必须架空底盘，先确认方向，再调控制参数。
+- 修改 `.ioc` 后重新生成代码时，只能依赖 `USER CODE` 区域保留用户代码。
+
+## 工作原理
+
+```text
+上位机 / 树莓派
+    -> USART6 串口协议
+    -> App 层任务：命令解析、底盘状态机、完成事件
+    -> Bsp 层驱动：CAN、I2C、PWM、GPIO、USART
+    -> 电机 / IMU / 红外 / 吸力 / 继电器
+```
+
+主控与功能：
 
 - 主控：STM32F407xx。
-- 底盘：4 个 CAN 电机组成的全向/麦轮底盘，支持机体系速度、角度保持和里程计移动。
-- 姿态：BNO085 通过 I2C1 读取 yaw 和 gyro z，用于航向保持和里程计更新。
-- 红外复眼：BE-1732 通过 I2C2 读取 7 路红外光强方向。
-- 电机通信：CAN1 控制底盘电机和功能电机。
-- 踢球电机：CAN ID 5，复用 CAN 电机驱动，支持串口设置速度和方向。
-- 吸力电机：TIM4_CH1 输出 PWM，支持 0-100% 速度设置。
-- 吸球检测：PB15/xqwd 输入微动开关，支持串口查询是否吸到球。
-- 继电器：PD0/JD1 输出控制，支持串口开关。
-- 串口通信：USART6 接收树莓派命令，USART1 默认用于调试打印。
+- 底盘：4 个 CAN 电机组成全向/麦轮底盘，支持机体系速度、角度保持和里程计移动。
+- 姿态：BNO085 通过 I2C1 输出 yaw 和 gyro z。
+- 红外复眼：BE1732 通过 I2C2 读取 7 路红外光强方向。
+- 功能电机：CAN ID 5，支持速度和方向控制。
+- 吸力电机：TIM4_CH1 输出 50 Hz PWM，支持 0-100% 速度设置。
+- 吸球检测：PB15/xqwd 微动开关输入。
+- 继电器：PD0/JD1 数字输出。
 
 ## 代码结构
 
@@ -22,56 +40,101 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 ├── App/                         # 应用层任务和外部通信协议
 │   ├── Inc/
 │   │   ├── app_chassis_task.h    # 底盘任务接口、运动参数宏
-│   │   └── app_pi_comm.h         # 树莓派串口通信接口
+│   │   └── app_pi_comm.h         # 树莓派/上位机串口通信接口
 │   └── Src/
-│       ├── app_chassis_task.c    # 底盘状态机：等待 IMU、空闲、移动、转向
+│       ├── app_chassis_task.c    # 底盘状态机：等待 IMU、空闲、移动、转向、持续运动
 │       └── app_pi_comm.c         # 串口收包、CRC 校验、命令解析、回复
 ├── Bsp/                         # 板级支持层
 │   ├── Inc/
 │   └── Src/
 │       ├── bsp_motor.c           # CAN 电机反馈和电流发送
-│       ├── bsp_kick_motor.c      # CAN ID 5 踢球电机速度控制
-│       ├── bsp_chassis.c         # 底盘运动学、PID、角度保持
+│       ├── bsp_chassis.c         # 底盘运动学、轮速 PID、角度保持
 │       ├── bsp_chassis_odom.c    # 里程计估计和目标点控制
 │       ├── bsp_bno085.c          # BNO085 初始化、报文读取、yaw 计算
-│       ├── bsp_be1732.c          # BE-1732 红外复眼 I2C 读取
-│       ├── bsp_dct.c             # PD0/JD1 继电器开关控制
-│       ├── bsp_suction_detect.c  # PB15/xqwd 吸球微动开关检测
-│       ├── bsp_suction_motor.c   # 吸力电机 PWM/油门控制
+│       ├── bsp_be1732.c          # BE1732 红外复眼 I2C 读取
+│       ├── bsp_kick_motor.c      # CAN ID 5 功能/踢球电机速度控制
+│       ├── bsp_suction_motor.c   # 吸力电机 PWM 控制
+│       ├── bsp_suction_detect.c  # PB15/xqwd 吸球检测
+│       ├── bsp_dct.c             # PD0/JD1 继电器输出
 │       └── bsp_usart.c           # 串口发送、接收、Printf 封装
-├── Core/                         # STM32CubeMX 生成和用户主循环代码
-│   ├── Inc/                      # 外设头文件、main.h、HAL 配置
-│   └── Src/
-│       ├── main.c                # 初始化流程和主循环调度
-│       ├── can.c                 # CAN1 初始化
-│       ├── i2c.c                 # I2C1 初始化
-│       ├── tim.c                 # TIM4 PWM 初始化
-│       ├── usart.c               # USART1/USART6 初始化
-│       └── gpio.c                # BNO085 相关 GPIO
+├── Core/                         # STM32CubeMX 生成代码和主循环
 ├── Drivers/                      # STM32 HAL、CMSIS 驱动
 ├── cmake/                        # 交叉编译工具链和 CubeMX CMake 文件
-├── CMakeLists.txt                # 工程顶层 CMake 配置
-├── CMakePresets.json             # Debug/Release 构建预设
 ├── RCJchassisdiver.ioc           # STM32CubeMX 工程配置
-├── STM32F407XX_FLASH.ld          # 链接脚本，保留最后 128K Flash sector 存放运行参数
+├── STM32F407XX_FLASH.ld          # 链接脚本，最后 128K Flash sector 用于运行参数
 └── startup_stm32f407xx.s         # 启动文件
 ```
 
-## 主程序流程
+## 快速开始
+
+### 1. 安装依赖
+
+```bash
+sudo apt install cmake ninja-build gcc-arm-none-eabi
+```
+
+### 2. 配置并编译
+
+在 `RCJchassisdiver/` 目录执行：
+
+```bash
+cmake --preset Debug
+cmake --build --preset Debug
+```
+
+Release 构建：
+
+```bash
+cmake --preset Release
+cmake --build --preset Release
+```
+
+默认产物：
+
+```text
+build/Debug/RCJchassisdiver.elf
+build/Debug/RCJchassisdiver.map
+```
+
+也可以从仓库根目录构建：
+
+```bash
+cmake --preset stm32-debug
+cmake --build --preset stm32-debug
+```
+
+### 3. 下载运行
+
+常见 ST-Link/OpenOCD 下载示例：
+
+```bash
+openocd -f interface/stlink.cfg -f target/stm32f4x.cfg \
+  -c "program build/Debug/RCJchassisdiver.elf verify reset exit"
+```
+
+> 注意：下载前确认底盘处于安全状态。首次烧录或改动运动参数后，建议架空底盘并准备独立急停。
+
+## 初始化与主循环
 
 `Core/Src/main.c` 完成 HAL、系统时钟、GPIO、CAN、USART、I2C、TIM 初始化后，依次初始化：
 
 1. `BspMotor_Init()`：启动 CAN 电机通信。
-2. `BspKickMotor_Init()`：初始化 CAN ID 5 踢球电机速度控制。
+2. `BspKickMotor_Init()`：初始化 CAN ID 5 功能/踢球电机速度控制。
 3. `BspSuctionMotor_Init()`：启动吸力电机 PWM。
-4. `BspSuctionDetect_Init()`：初始化吸球检测 BSP。
-5. `BspBe1732_Init()`：初始化 BE-1732 红外复眼，默认进入调制检测模式。
+4. `BspSuctionDetect_Init()`：初始化吸球检测。
+5. `BspBe1732_Init()`：初始化 BE1732 红外复眼。
 6. `BspDct_Init()`：关闭 PD0/JD1 继电器输出。
-7. `AppChassisTask_Init()`：初始化底盘任务状态机。
+7. `AppChassisTask_Init()`：初始化底盘状态机。
 8. `AppPiComm_Init()`：启动 USART6 中断接收。
 9. `Bno085_Init()` 和 `Bno085_EnableDefaultReports()`：初始化 IMU 并开启默认报告。
 
-主循环中持续处理串口命令、读取 BNO085 数据、处理 BNO_KEY 短按/长按、更新底盘任务和踢球电机速度环，并执行吸力电机测试任务。
+主循环持续执行：
+
+- 处理串口命令。
+- 读取和解析 BNO085 数据。
+- 处理 `BNO_KEY` 短按/长按。
+- 更新底盘任务和踢球电机速度环。
+- 执行吸力电机测试任务。
 
 ## 外设连接
 
@@ -81,7 +144,7 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 | USART6 | PC6 TX, PC7 RX, 115200 8N1 | 树莓派/上位机命令通信 |
 | CAN1 | PA11 RX, PA12 TX | CAN 电机控制和反馈 |
 | I2C1 | PB6 SCL, PB7 SDA, 400 kHz | BNO085 通信 |
-| I2C2 | PB10 SCL, PB11 SDA, 100 kHz | BE-1732 红外复眼 |
+| I2C2 | PB10 SCL, PB11 SDA, 100 kHz | BE1732 红外复眼 |
 | TIM4_CH1 | PD12, 50 Hz PWM | 吸力电机/电调控制 |
 | xqwd | PB15 input pull-up | 吸球微动开关检测，默认低电平表示吸到球 |
 | JD1 | PD0 output | 继电器控制 |
@@ -89,530 +152,74 @@ STM32F407 底盘驱动工程，用于 RCJ 机器人底盘控制。工程基于 S
 | BNO_KEY | PE13 input pull-up | 短按 yaw 清零，长按切换底盘运动使能 |
 | BNO_NRST | PB8 output | BNO085 复位 |
 
-## 构建方式
+## 常用操作
 
-依赖：
+### 串口命令摘要
 
-- CMake 3.22 或更新版本。
-- Ninja。
-- `arm-none-eabi-gcc` 工具链。
+完整格式和 CRC 算法见 [`App/README.md`](App/README.md)。
 
-配置并编译 Debug：
+| 命令 | 作用 | 常见使用场景 |
+| --- | --- | --- |
+| `cmd_conmotion 1` | 启用底盘运动 | 开始运动测试前 |
+| `cmd_anglecal` | 当前姿态设为 yaw 零点 | 上电后校准车头方向 |
+| `cmd_dis x y [profile]` | 相对位移，单位 cm | 按坐标移动一小段 |
+| `cmd_turn yaw` | 转到绝对 yaw | 调整车头方向 |
+| `cmd_dkmotor speed angle [head_lock]` | 持续方向运动 | 手动遥控或连续运动 |
+| `cmd_juststop` | 停止当前底盘命令 | 中断持续运动 |
+| `cmd_request` | 查询里程增量和 yaw | 上位机同步位置 |
+| `cmd_suck speed` | 设置吸力电机速度 | 控制吸球机构 |
+| `cmd_tqdj speed reverse` | 设置功能/踢球电机 | 控制 CAN ID 5 电机 |
+| `cmd_xqcx` | 查询数字吸球检测 | 判断是否吸到球 |
 
-```bash
-cmake --preset Debug
-cmake --build --preset Debug
-```
+### BNO_KEY 按键
 
-编译 Release：
+- 短按：执行 yaw 清零，成功后 USART1 打印 `imu_zero:1`。
+- 长按约 1 秒：切换底盘运动使能。
 
-```bash
-cmake --preset Release
-cmake --build --preset Release
-```
+## 参数与调试
 
-当前默认产物为：
-
-```text
-build/Debug/RCJchassisdiver.elf
-build/Debug/RCJchassisdiver.map
-```
-
-如需生成 `.bin` 或 `.hex`，可以在 CMake 中增加 `arm-none-eabi-objcopy` 的 post-build 命令，或在编译后手动转换。
-
-## 下载和运行
-
-常见 ST-Link/OpenOCD 下载方式示例：
-
-```bash
-openocd -f interface/stlink.cfg -f target/stm32f4x.cfg \
-  -c "program build/Debug/RCJchassisdiver.elf verify reset exit"
-```
-
-运行前检查：
-
-- CAN 总线终端电阻、电机 ID 和供电是否正确。
-- BNO085 的 I2C 地址、INT、NRST、KEY 引脚是否和本工程一致。
-- BE-1732 红外复眼连接到 I2C2，模块地址为 `0x01`。
-- 树莓派串口连接到 USART6，电平为 3.3 V。
-- 调试串口如需查看日志，连接 USART1，波特率 115200。
-
-## 串口命令协议
-
-树莓派/上位机通过 USART6 发送命令。串口参数：
-
-```text
-115200 baud, 8 data bits, no parity, 1 stop bit
-```
-
-每条命令一行：
-
-```text
-<payload> *<CRC16>\r\n
-```
-
-说明：
-
-- `payload` 是实际命令内容，例如 `cmd_dis 10 0`。
-- `*` 后面是 4 位大写十六进制 CRC。
-- CRC 算法为 CRC16-CCITT，初值 `0xFFFF`，多项式 `0x1021`，无最终异或。
-- CRC 只计算 `payload`，不包含 ` *CRC`、`\r`、`\n`。
-- 固件回复也使用同样格式：`<payload> *<CRC16>\r\n`。
-- 单行最大长度由 `APP_PI_COMM_LINE_SIZE` 控制，当前为 96 字节。
-
-### CRC 计算示例
-
-```c
-uint16_t crc16_ccitt(const uint8_t *data, uint16_t size)
-{
-    uint16_t crc = 0xFFFF;
-
-    for (uint16_t i = 0; i < size; i++)
-    {
-        crc ^= (uint16_t)data[i] << 8;
-        for (uint8_t bit = 0; bit < 8; bit++)
-        {
-            if ((crc & 0x8000) != 0)
-            {
-                crc = (uint16_t)((crc << 1) ^ 0x1021);
-            }
-            else
-            {
-                crc <<= 1;
-            }
-        }
-    }
-
-    return crc;
-}
-```
-
-### `cmd_dis`
-
-控制底盘按当前里程计坐标做相对位移，单位为 cm。执行过程中保持当前 yaw。
-
-```text
-cmd_dis <x_cm> <y_cm> [speed_profile] *<CRC16>
-```
-
-示例：
-
-```text
-cmd_dis 10 0 *B37E
-cmd_dis 10 0 0 *....
-```
-
-含义：向里程计 x 方向移动 10 cm，y 方向不变。`speed_profile` 可省略，默认 `1`。
-
-速度曲线档位：
-
-- `0`：加减速更急，能更快接近最高速度。
-- `1`：维持原来的曲线。
-- `2`：加减速更缓，起停更柔和。
-
-可能回复：
-
-```text
-cmd_dis ok 10 0 *....
-cmd_dis ok 10 0 0 *....
-cmd_dis busy 10 0 *....
-cmd_dis done 10 0 *....
-err arg *....
-```
-
-### `cmd_turn`
-
-控制底盘转到绝对目标 yaw 角，单位为度。目标角会被归一化到 0-360 度。
-
-```text
-cmd_turn <target_yaw_deg> *<CRC16>
-```
-
-示例：
-
-```text
-cmd_turn 90 *1935
-```
-
-可能回复：
-
-```text
-cmd_turn ok 90 *....
-cmd_turn busy 90 *....
-cmd_turn done 90 *....
-err arg *....
-```
-
-### `cmd_dkmotor`
-
-进入底盘持续速度控制模式。该模式不做加减速规划，使用轮速闭环和车头角度保持；需要停止时发送速度 `0`。
-
-```text
-cmd_dkmotor <speed_percent> <move_angle_deg> [head_lock] *<CRC16>
-```
-
-参数说明：
-
-- `speed_percent`：速度映射值，范围 `0-100`。当前 `100` 对应 `APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S`，默认 `650 mm/s`。
-- `move_angle_deg`：运动角度，单位度，`0` 为小车前方，`90` 为小车左方。
-- `head_lock`：锁头使能，可省略，默认 `1`。`1` 表示保持当前车头方向不变，按运动角度整体平移；`0` 表示先转到对应角度，再朝小车前方直行。两种模式都会使用角度环。
-
-示例：
-
-```text
-cmd_dkmotor 50 0 *277A
-cmd_dkmotor 50 90 *A24E
-cmd_dkmotor 50 0 1 *6038
-cmd_dkmotor 50 90 1 *F282
-cmd_dkmotor 50 90 0 *E2A3
-cmd_dkmotor 0 0 *F332
-```
-
-可能回复：
-
-```text
-cmd_dkmotor ok 50 0 *077E
-cmd_dkmotor ok 50 90 *822C
-cmd_dkmotor ok 50 0 1 *265A
-cmd_dkmotor ok 50 90 1 *B880
-cmd_dkmotor busy 50 90 1 *684C
-err arg *....
-```
-
-### `cmd_juststop`
-
-停止当前持续运动，但不关闭底盘运动功能，仍然保持转向环。主要用于 `cmd_dkmotor` 持续运动过程中停车并保持航向。
-
-```text
-cmd_juststop *C3E4
-```
-
-可能回复：
-
-```text
-cmd_juststop ok *E3CE
-cmd_juststop busy *AE33
-err arg *....
-```
-
-### `cmd_suck`
-
-设置吸力电机速度百分比，范围 0-100。
-
-```text
-cmd_suck <speed_percent> *<CRC16>
-```
-
-示例：
-
-```text
-cmd_suck 50 *5752
-```
-
-可能回复：
-
-```text
-cmd_suck ok 50 *....
-cmd_suck busy 50 *....
-err arg *....
-```
-
-### `cmd_tqdj`
-
-设置踢球电机速度和方向。踢球电机使用 CAN ID 5，速度闭环由固件周期执行；速度为 `0` 时立即停止输出。
-
-```text
-cmd_tqdj <speed_percent> <direction> *<CRC16>
-```
-
-参数说明：
-
-- `speed_percent`：速度百分比，范围 `0-100`。当前 `100` 对应 `BSP_KICK_MOTOR_MAX_RPM`，默认 `5000 rpm`。
-- `direction`：方向，`0` 为正转，`1` 为反转。
-
-示例：
-
-```text
-cmd_tqdj 80 0 *....
-cmd_tqdj 80 1 *....
-cmd_tqdj 0 0 *....
-```
-
-可能回复：
-
-```text
-cmd_tqdj ok 80 0 *....
-cmd_tqdj ok 80 1 *....
-cmd_tqdj ok 0 0 *....
-cmd_tqdj busy 80 0 *....
-err arg *....
-```
-
-### `cmd_xqcx`
-
-查询 PB15/xqwd 吸球微动开关状态。命令无参数，返回 `1` 表示吸到球，`0` 表示未吸到球。默认按上拉输入、开关闭合拉低处理。
-
-```text
-cmd_xqcx *8DF9
-```
-
-回复格式：
-
-```text
-cmd_xqcx <0|1> *<CRC16>
-err arg *....
-```
-
-### `cmd_dct`
-
-控制 PD0/JD1 继电器输出。
-
-```text
-cmd_dct <0|1> *<CRC16>
-```
-
-示例：
-
-```text
-cmd_dct 0 *B72D
-cmd_dct 1 *A70C
-```
-
-说明：
-
-- `0`：关闭继电器输出，PD0 输出低电平。
-- `1`：打开继电器输出，PD0 输出高电平。
-
-可能回复：
-
-```text
-cmd_dct ok 0 *F12F
-cmd_dct ok 1 *E10E
-cmd_dct busy 0 *2DA2
-cmd_dct busy 1 *3D83
-err arg *....
-```
-
-### `cmd_conmotion`
-
-控制底盘运动功能使能。该开关会影响 `cmd_dis`、`cmd_turn` 以及空闲状态下默认的转向环/角度保持输出。
-
-```text
-cmd_conmotion <0|1> *<CRC16>
-```
-
-示例：
-
-```text
-cmd_conmotion 0 *6732
-cmd_conmotion 1 *7713
-```
-
-说明：
-
-- `0`：失能底盘运动，立即停止底盘电机，并关闭默认转向环输出。
-- `1`：使能底盘运动，允许 `cmd_dis`、`cmd_turn` 和空闲角度保持继续工作。
-- 也可以长按 `BNO_KEY` 切换该使能状态；失能后新的底盘运动命令会返回 `busy`。
-
-可能回复：
-
-```text
-cmd_conmotion ok 0 *87F6
-cmd_conmotion ok 1 *97D7
-err arg *....
-```
-
-### `cmd_request`
-
-查询自上一次 `cmd_request` 以来的里程计增量和当前 yaw。
-
-```text
-cmd_request *55E4
-```
-
-回复格式：
-
-```text
-cmd_request <dx_cm> <dy_cm> <dyaw_deg> <yaw_deg> *<CRC16>
-```
-
-字段说明：
-
-- `dx_cm`：距离上次查询的 x 位移，单位 cm。
-- `dy_cm`：距离上次查询的 y 位移，单位 cm。
-- `dyaw_deg`：距离上次查询的 yaw 变化，单位度。
-- `yaw_deg`：当前 yaw，单位度。
-
-第一次查询时，`dx_cm`、`dy_cm`、`dyaw_deg` 返回 0，随后建立增量参考点。
-
-### `cmd_infred`
-
-查询 BE-1732 红外复眼当前模式下最强红外信号所在通道。命令无参数，正常返回 `1-7`；最大光值连续 30 次 `<=4` 时返回 `-1`，表示未检测到可靠红外信号。
-
-```text
-cmd_infred *8E0C
-```
-
-回复格式：
-
-```text
-cmd_infred <channel> *<CRC16>
-```
-
-示例：
-
-```text
-cmd_infred 1 *D98F
-cmd_infred 7 *B949
-cmd_infred -1 *<CRC16>
-```
-
-如果 I2C 读取失败：
-
-```text
-cmd_infred busy <status> <i2cerr> *<CRC16>
-```
-
-### `cmd_redzhi`
-
-查询 BE-1732 当前模式下的最大光值，对应手册命令 `9`。
-
-```text
-cmd_redzhi *58ED
-```
-
-回复格式：
-
-```text
-cmd_redzhi <value> *<CRC16>
-```
-
-### `cmd_xgred`
-
-修改无红外判断的最大光值比较阈值，默认值为 `4`。阈值会写入 STM32 内部 Flash 最后一个 sector，复位和断电后仍然生效。
-
-```text
-cmd_xgred <value> *<CRC16>
-cmd_xgred 6 *DCC5
-```
-
-成功回复：
-
-```text
-cmd_xgred ok <value> *<CRC16>
-```
-
-如果 Flash 写入失败：
-
-```text
-cmd_xgred busy <status> <flasherr> *<CRC16>
-```
-
-### `cmd_infred_mode`
-
-切换 BE-1732 红外复眼检测模式。默认使用 `tz` 调制检测模式。
-
-```text
-cmd_infred_mode pt *2597
-cmd_infred_mode tz *089D
-```
-
-参数说明：
-
-- `pt`：普通检测模式，对应手册命令 `13`。
-- `tz`：调制检测模式，对应手册命令 `14`。
-
-成功回复：
-
-```text
-cmd_infred_mode ok pt *F22C
-cmd_infred_mode ok tz *DF26
-```
-
-如果 I2C 切换失败：
-
-```text
-cmd_infred_mode busy <pt|tz> <status> <i2cerr> *<CRC16>
-```
-
-### `cmd_anglecal`
-
-执行 yaw 角度清零，功能与 `BNO_KEY` 按键清零一致。命令无参数。
-
-```text
-cmd_anglecal *7932
-```
-
-可能回复：
-
-```text
-cmd_anglecal ok *6571
-cmd_anglecal done *4C90
-cmd_anglecal busy *....
-cmd_anglecal eror *....
-err arg *....
-```
-
-说明：
-
-- `ok` 表示已成功执行 BNO085 yaw 清零。
-- `done` 会在 `ok` 后立即发送，表示该命令流程结束。
-- `busy` 通常表示当前还没有有效 BNO085 姿态数据，无法清零。
-
-### `cmd_mcureset`
-
-执行单片机软件复位。命令无参数。
-
-```text
-cmd_mcureset *C427
-```
-
-可能回复：
-
-```text
-cmd_mcureset ok *2559
-cmd_mcureset done *E436
-err arg *....
-```
-
-固件发送 `ok` 和 `done` 后会短延时，然后调用 `NVIC_SystemReset()` 复位 MCU。
-
-### 错误回复
-
-| 回复 | 含义 |
-| --- | --- |
-| `err cmd` | 命令名不支持 |
-| `err arg` | 参数数量、格式或范围错误 |
-| `err long` | 单行命令超过缓冲区长度 |
-| `<cmd> eror` | CRC 错误、缺少 `*CRC` 或帧格式错误 |
-
-注意：当前代码中的格式错误回复字符串为 `eror`，不是 `error`。
-
-## 关键参数
-
-多数控制参数通过头文件宏配置，未定义时使用默认值。
+常用参数位置：
 
 | 文件 | 参数示例 | 作用 |
 | --- | --- | --- |
 | `App/Inc/app_chassis_task.h` | `APP_CHASSIS_TASK_MOVE_SPEED_MM_S` | 默认移动速度 |
 | `App/Inc/app_chassis_task.h` | `APP_CHASSIS_TASK_ROTATE_TOLERANCE_DEG` | 转向到位角度容差 |
-| `App/Inc/app_chassis_task.h` | `APP_CHASSIS_TASK_STOP_STABLE_MS` | 电机停止稳定判定时间 |
-| `Bsp/Inc/bsp_chassis.h` | `BSP_CHASSIS_ANGLE_KP`、`BSP_CHASSIS_ANGLE_GYRO_KD` | 航向控制参数 |
-| `Bsp/Inc/bsp_chassis.h` | `BSP_CHASSIS_WHEEL_SPEED_KP/KI/KD/KF` | 轮速控制参数 |
-| `Bsp/Inc/bsp_chassis_odom.h` | `BSP_CHASSIS_ODOM_FORWARD_SCALE`、`BSP_CHASSIS_ODOM_LEFT_SCALE` | 里程计标定比例 |
+| `App/Inc/app_chassis_task.h` | `APP_CHASSIS_TASK_STOP_STABLE_MS` | 停稳判定时间 |
+| `Bsp/Inc/bsp_chassis.h` | `BSP_CHASSIS_ANGLE_KP`、`BSP_CHASSIS_ANGLE_GYRO_KD` | 航向控制 |
+| `Bsp/Inc/bsp_chassis.h` | `BSP_CHASSIS_WHEEL_SPEED_KP/KI/KD/KF` | 轮速控制 |
+| `Bsp/Inc/bsp_chassis_odom.h` | `BSP_CHASSIS_ODOM_FORWARD_SCALE`、`BSP_CHASSIS_ODOM_LEFT_SCALE` | 里程计比例 |
 | `Bsp/Inc/bsp_suction_motor.h` | `BSP_SUCTION_MOTOR_*_US` | 吸力电机 PWM 脉宽范围 |
 
-## 调试建议
+推荐调试顺序：
 
-- `MAIN_IMU_PRINT_ENABLE` 可打开 IMU 周期打印。
-- `BNO_KEY` 短按执行 yaw 清零，成功后 USART1 打印 `imu_zero:1`；长按约 1 秒切换底盘运动使能。
-- 如果串口命令一直返回 `busy`，优先检查 BNO085 是否正常输出 yaw；没有有效 yaw 时底盘任务会停留在等待 IMU 状态。
-- 如果底盘方向或角度闭环相反，检查 `BSP_CHASSIS_*_DIR`、`BSP_CHASSIS_YAW_CTRL_DIR`、`BSP_CHASSIS_GYRO_Z_DIR` 等方向宏。
-- 如果里程计距离偏差较大，调整 `BSP_CHASSIS_ODOM_FORWARD_SCALE` 和 `BSP_CHASSIS_ODOM_LEFT_SCALE`。
+1. 架空底盘，确认急停和 `cmd_conmotion 0` 有效。
+2. 确认 CAN 电机 ID、旋转方向和反馈方向。
+3. 调底盘轮速环。
+4. 调 IMU yaw 方向和偏航角保持。
+5. 标定里程计比例。
+6. 调 App 层 `cmd_dis` 的速度曲线、横向纠偏和停稳阈值。
 
-## 维护注意事项
+## 常见问题
 
-- `Core/` 下多数文件由 STM32CubeMX 生成，重新生成代码时注意保留 `USER CODE` 区域内的用户代码。
-- 新增业务逻辑优先放在 `App/` 或 `Bsp/`，避免和 CubeMX 生成代码混在一起。
-- 修改串口协议时，应同步更新 `App/Src/app_pi_comm.c` 和本 README 的命令说明。
-- 修改外设引脚时，应同步更新 `.ioc`、CubeMX 生成代码和本文档的外设连接表。
+### 串口命令一直返回 `busy`
+
+优先检查 BNO085 是否有有效 yaw。没有有效 yaw 时，底盘状态机会等待 IMU，不会执行移动或转向命令。
+
+### 底盘方向或角度闭环相反
+
+先检查方向宏，例如 `BSP_CHASSIS_*_DIR`、`BSP_CHASSIS_YAW_CTRL_DIR`、`BSP_CHASSIS_GYRO_Z_DIR`。方向错误不能靠负 PID 参数修正。
+
+### 里程计距离偏差很大
+
+先确认轮径、减速比、轮速反馈方向和 yaw 方向，再调整 `BSP_CHASSIS_ODOM_FORWARD_SCALE` 与 `BSP_CHASSIS_ODOM_LEFT_SCALE`。
+
+### 红外或吸球检测结果不稳定
+
+先确认接线和 I2C/GPIO 状态，再看 [`Bsp/README.md`](Bsp/README.md) 中的 BE1732、吸球检测消抖和阈值说明。
+
+## 维护说明
+
+- 修改串口协议时，同步更新 `App/Src/app_pi_comm.c` 和 [`App/README.md`](App/README.md)。
+- 修改外设引脚时，同步更新 `.ioc`、CubeMX 生成代码和本文档的外设表。
+- 新增业务逻辑优先放在 `App/` 或 `Bsp/`。
+- 重新生成 CubeMX 代码后，检查 `main.c`、`gpio.c`、`usart.c`、`i2c.c`、`can.c`、`tim.c` 中的 `USER CODE`。
