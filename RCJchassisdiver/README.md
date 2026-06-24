@@ -223,3 +223,27 @@ openocd -f interface/stlink.cfg -f target/stm32f4x.cfg \
 - 修改外设引脚时，同步更新 `.ioc`、CubeMX 生成代码和本文档的外设表。
 - 新增业务逻辑优先放在 `App/` 或 `Bsp/`。
 - 重新生成 CubeMX 代码后，检查 `main.c`、`gpio.c`、`usart.c`、`i2c.c`、`can.c`、`tim.c` 中的 `USER CODE`。
+
+## 贡献与变更要求
+
+固件改动需要比普通软件改动更谨慎。提交前建议说明：
+
+- 修改了哪些硬件链路、协议字段或控制参数。
+- 是否需要重新生成 CubeMX 代码。
+- 已在哪种硬件状态下测试，例如架空、落地、低速、满电或低电量。
+- 是否影响上位机、树莓派或现有串口命令。
+- 是否需要同步更新 [`App/README.md`](App/README.md) 或 [`Bsp/README.md`](Bsp/README.md)。
+
+## 安全与免责声明
+
+固件会直接控制底盘电机、吸力电机、功能电机和继电器。运行前必须确认供电、接线、急停、场地和人员位置安全。
+
+本工程不保证在所有硬件装配、供电条件和比赛场地中安全工作。使用者需要自行验证运动方向、控制参数、电流限制和机械防护，并承担由烧录、运行或修改固件造成的风险。
+
+## 版权与许可
+
+Copyright © 2026 ChaseZhao619 and contributors.
+
+本目录代码属于 RCJChassisDriver 固件工程的一部分，随仓库按 GNU General Public License v3.0 only（GPL-3.0-only）授权，完整条款见 [`../LICENSE`](../LICENSE)。
+
+第三方 STM32 HAL/CMSIS 驱动遵循 `Drivers/` 下各自的许可证文件。
