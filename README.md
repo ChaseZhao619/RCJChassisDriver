@@ -4,6 +4,50 @@ RCJChassisDriver 是 RCJ 机器人底盘控制系统仓库，包含 STM32 底盘
 
 本文档是项目总入口。如果你是第一次接触本工程，先按“快速开始”跑通构建；如果你已经在开发功能，直接查看“开发者入口”。
 
+## 版权与许可
+
+> 重要：本项目采用 GNU General Public License v3.0 only（GPL-3.0-only）授权。分发修改版或基于本项目的派生作品时，需要遵守 GPL-3.0 的源代码公开和同许可证分发要求。
+
+Copyright © 2026 ChaseZhao619 and contributors.
+
+完整条款见 [`LICENSE`](LICENSE)。你可以按照 GPL-3.0 的条款使用、复制、修改和分发本项目。
+
+第三方组件遵循其各自许可证：
+
+- STM32 HAL：见 [`RCJchassisdiver/Drivers/STM32F4xx_HAL_Driver/LICENSE.txt`](RCJchassisdiver/Drivers/STM32F4xx_HAL_Driver/LICENSE.txt)。
+- CMSIS：见 [`RCJchassisdiver/Drivers/CMSIS/LICENSE.txt`](RCJchassisdiver/Drivers/CMSIS/LICENSE.txt)。
+- STM32F4xx CMSIS Device：见 [`RCJchassisdiver/Drivers/CMSIS/Device/ST/STM32F4xx/LICENSE.txt`](RCJchassisdiver/Drivers/CMSIS/Device/ST/STM32F4xx/LICENSE.txt)。
+
+## 安全与免责声明
+
+> 危险：本仓库包含会驱动底盘电机、踢球机构、吸力机构、继电器和电调的代码。烧录、运行或调参前，必须确认急停、架空测试、供电、接线和人员距离安全。
+
+- 首次测试或修改运动控制后，应架空底盘并准备独立急停。
+- 不应在人员靠近轮子、踢球机构或吸力机构时执行运动测试。
+- 本项目按“现状”提供，不承诺适用于任何特定比赛、课程、商业或安全关键场景。
+- 使用者需要自行承担硬件损坏、人身伤害、比赛失误和数据丢失等风险。
+
+如果发现可能导致失控、越权写入、错误复位或硬件损坏的问题，请优先私下联系维护者或在受控范围内提交 issue，避免公开可直接复现危险动作的细节。
+
+## 贡献与维护说明
+
+> 重要：协议、控制参数、硬件引脚和测试宏的改动都可能影响实车安全。提交这类改动时，必须同步说明测试条件和影响范围。
+
+欢迎通过 issue、pull request 或分支提交改进。为了降低硬件项目的联调风险，提交前建议做到：
+
+- 文档改动说明影响范围。
+- 固件改动说明测试硬件、测试命令和安全措施。
+- 协议改动同步更新固件、上位机和 README。
+- 参数改动记录旧值、新值、测试场景和现象。
+- 不提交个人密钥、串口日志中的敏感信息、私有节点配置或本机绝对路径。
+
+维护规则：
+
+- `Core/` 下多数文件由 STM32CubeMX 生成，重新生成代码时注意保留 `USER CODE` 区域。
+- 新增业务逻辑优先放在 `App/` 或 `Bsp/`，不要混入 CubeMX 生成代码。
+- 修改串口协议时，同步更新 `App/Src/app_pi_comm.c` 和 [`App/README.md`](RCJchassisdiver/App/README.md)。
+- 修改外设引脚时，同步更新 `.ioc`、CubeMX 生成代码和 [`RCJchassisdiver/README.md`](RCJchassisdiver/README.md) 的外设表。
+
 ## 你应该先知道
 
 - `RCJchassisdiver` 是 STM32F407 固件，负责电机、传感器、执行器和串口协议。
@@ -138,45 +182,3 @@ arm-none-eabi-gcc --version
 ### 为什么底盘运动方向不对？
 
 不要先调 PID。先按 [`BSP 调参手册`](RCJchassisdiver/Bsp/README.md) 检查电机编号、旋转方向、反馈方向、陀螺仪方向和运动坐标约定。
-
-## 维护说明
-
-- `Core/` 下多数文件由 STM32CubeMX 生成，重新生成代码时注意保留 `USER CODE` 区域。
-- 新增业务逻辑优先放在 `App/` 或 `Bsp/`，不要混入 CubeMX 生成代码。
-- 修改串口协议时，同步更新 `App/Src/app_pi_comm.c` 和 [`App/README.md`](RCJchassisdiver/App/README.md)。
-- 修改外设引脚时，同步更新 `.ioc`、CubeMX 生成代码和 [`RCJchassisdiver/README.md`](RCJchassisdiver/README.md) 的外设表。
-
-## 贡献说明
-
-欢迎通过 issue、pull request 或分支提交改进。为了降低硬件项目的联调风险，提交前建议做到：
-
-- 文档改动说明影响范围。
-- 固件改动说明测试硬件、测试命令和安全措施。
-- 协议改动同步更新固件、上位机和 README。
-- 参数改动记录旧值、新值、测试场景和现象。
-- 不提交个人密钥、串口日志中的敏感信息、私有节点配置或本机绝对路径。
-
-## 安全与免责声明
-
-本仓库包含会驱动电机、继电器和电调的代码。任何烧录、运行或调参操作都应在可控环境中进行。
-
-- 首次测试或修改运动控制后，应架空底盘并准备独立急停。
-- 不应在人员靠近轮子、踢球机构或吸力机构时执行运动测试。
-- 本项目按“现状”提供，不承诺适用于任何特定比赛、课程、商业或安全关键场景。
-- 使用者需要自行承担硬件损坏、人身伤害、比赛失误和数据丢失等风险。
-
-如果发现可能导致失控、越权写入、错误复位或硬件损坏的问题，请优先私下联系维护者或在受控范围内提交 issue，避免公开可直接复现危险动作的细节。
-
-## 版权与许可
-
-Copyright © 2026 ChaseZhao619 and contributors.
-
-本项目采用 GNU General Public License v3.0 only（GPL-3.0-only）授权，完整条款见 [`LICENSE`](LICENSE)。你可以按照 GPL-3.0 的条款使用、复制、修改和分发本项目；如果分发修改版或基于本项目的派生作品，需要遵守 GPL-3.0 的源代码公开和同许可证分发要求。
-
-第三方组件遵循其各自许可证：
-
-- STM32 HAL：见 [`RCJchassisdiver/Drivers/STM32F4xx_HAL_Driver/LICENSE.txt`](RCJchassisdiver/Drivers/STM32F4xx_HAL_Driver/LICENSE.txt)。
-- CMSIS：见 [`RCJchassisdiver/Drivers/CMSIS/LICENSE.txt`](RCJchassisdiver/Drivers/CMSIS/LICENSE.txt)。
-- STM32F4xx CMSIS Device：见 [`RCJchassisdiver/Drivers/CMSIS/Device/ST/STM32F4xx/LICENSE.txt`](RCJchassisdiver/Drivers/CMSIS/Device/ST/STM32F4xx/LICENSE.txt)。
-
-本项目不提供任何明示或默示担保。硬件运行风险、安全验证和合规责任由使用者自行承担。

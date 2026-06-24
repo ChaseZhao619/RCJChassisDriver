@@ -4,6 +4,39 @@
 
 这篇文档是固件主入口。完整串口协议请看 [`App/README.md`](App/README.md)，底层硬件调参请看 [`Bsp/README.md`](Bsp/README.md)。
 
+## 版权与许可
+
+> 重要：本目录代码随仓库按 GNU General Public License v3.0 only（GPL-3.0-only）授权。分发固件修改版或派生作品时，需要遵守 GPL-3.0 的源代码公开和同许可证分发要求。
+
+Copyright © 2026 ChaseZhao619 and contributors.
+
+完整条款见 [`../LICENSE`](../LICENSE)。第三方 STM32 HAL/CMSIS 驱动遵循 `Drivers/` 下各自的许可证文件。
+
+## 安全与免责声明
+
+> 危险：固件会直接控制底盘电机、吸力电机、功能电机和继电器。运行前必须确认供电、接线、急停、场地和人员位置安全。
+
+本工程不保证在所有硬件装配、供电条件和比赛场地中安全工作。使用者需要自行验证运动方向、控制参数、电流限制和机械防护，并承担由烧录、运行或修改固件造成的风险。
+
+## 贡献与维护说明
+
+> 重要：固件改动需要比普通软件改动更谨慎。任何协议、引脚、方向宏、PID、速度上限或测试宏改动，都必须说明测试条件和安全措施。
+
+提交前建议说明：
+
+- 修改了哪些硬件链路、协议字段或控制参数。
+- 是否需要重新生成 CubeMX 代码。
+- 已在哪种硬件状态下测试，例如架空、落地、低速、满电或低电量。
+- 是否影响上位机、树莓派或现有串口命令。
+- 是否需要同步更新 [`App/README.md`](App/README.md) 或 [`Bsp/README.md`](Bsp/README.md)。
+
+维护规则：
+
+- 修改串口协议时，同步更新 `App/Src/app_pi_comm.c` 和 [`App/README.md`](App/README.md)。
+- 修改外设引脚时，同步更新 `.ioc`、CubeMX 生成代码和本文档的外设表。
+- 新增业务逻辑优先放在 `App/` 或 `Bsp/`。
+- 重新生成 CubeMX 代码后，检查 `main.c`、`gpio.c`、`usart.c`、`i2c.c`、`can.c`、`tim.c` 中的 `USER CODE`。
+
 ## 你应该先知道
 
 - 固件分为 `App`、`Bsp`、`Core` 三层：`App` 负责业务状态机，`Bsp` 负责硬件抽象，`Core` 主要来自 STM32CubeMX。
@@ -216,34 +249,3 @@ openocd -f interface/stlink.cfg -f target/stm32f4x.cfg \
 ### 红外或吸球检测结果不稳定
 
 先确认接线和 I2C/GPIO 状态，再看 [`Bsp/README.md`](Bsp/README.md) 中的 BE1732、吸球检测消抖和阈值说明。
-
-## 维护说明
-
-- 修改串口协议时，同步更新 `App/Src/app_pi_comm.c` 和 [`App/README.md`](App/README.md)。
-- 修改外设引脚时，同步更新 `.ioc`、CubeMX 生成代码和本文档的外设表。
-- 新增业务逻辑优先放在 `App/` 或 `Bsp/`。
-- 重新生成 CubeMX 代码后，检查 `main.c`、`gpio.c`、`usart.c`、`i2c.c`、`can.c`、`tim.c` 中的 `USER CODE`。
-
-## 贡献与变更要求
-
-固件改动需要比普通软件改动更谨慎。提交前建议说明：
-
-- 修改了哪些硬件链路、协议字段或控制参数。
-- 是否需要重新生成 CubeMX 代码。
-- 已在哪种硬件状态下测试，例如架空、落地、低速、满电或低电量。
-- 是否影响上位机、树莓派或现有串口命令。
-- 是否需要同步更新 [`App/README.md`](App/README.md) 或 [`Bsp/README.md`](Bsp/README.md)。
-
-## 安全与免责声明
-
-固件会直接控制底盘电机、吸力电机、功能电机和继电器。运行前必须确认供电、接线、急停、场地和人员位置安全。
-
-本工程不保证在所有硬件装配、供电条件和比赛场地中安全工作。使用者需要自行验证运动方向、控制参数、电流限制和机械防护，并承担由烧录、运行或修改固件造成的风险。
-
-## 版权与许可
-
-Copyright © 2026 ChaseZhao619 and contributors.
-
-本目录代码属于 RCJChassisDriver 固件工程的一部分，随仓库按 GNU General Public License v3.0 only（GPL-3.0-only）授权，完整条款见 [`../LICENSE`](../LICENSE)。
-
-第三方 STM32 HAL/CMSIS 驱动遵循 `Drivers/` 下各自的许可证文件。
