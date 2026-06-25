@@ -10,7 +10,7 @@
 
 Copyright © 2026 ChaseZhao619 and contributors.
 
-完整条款见 [`../../LICENSE`](../../LICENSE)。`Drivers/` 下的 STM32 HAL/CMSIS 组件遵循其自带许可证。
+完整条款见 [`../../../LICENSE`](../../../LICENSE)。`Drivers/` 下的 STM32 HAL/CMSIS 组件遵循其自带许可证。
 
 ## 安全与免责声明
 

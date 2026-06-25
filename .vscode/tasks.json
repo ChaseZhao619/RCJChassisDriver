@@ -7,10 +7,10 @@
             "command": "cmake",
             "args": [
                 "--preset",
-                "Debug"
+                "stm32-debug"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/RCJchassisdiver"
+                "cwd": "${workspaceFolder}"
             },
             "problemMatcher": []
         },
@@ -24,7 +24,7 @@
                 "Debug"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/RCJchassisdiver"
+                "cwd": "${workspaceFolder}"
             },
             "dependsOn": [
                 "STM32: configure Debug"
@@ -38,17 +38,17 @@
         {
             "label": "STM32: flash Debug",
             "type": "shell",
-            "command": "/home/chase/.local/bin/pyocd",
+            "command": "${workspaceFolder}/.vscode/pyocd-cortex-debug.sh",
             "args": [
                 "load",
                 "--target",
                 "stm32f407vetx",
                 "--frequency",
                 "4000000",
-                "${workspaceFolder}/RCJchassisdiver/build/Debug/RCJchassisdiver.elf"
+                "${workspaceFolder}/build/stm32/stm32-debug/firmware/stm32_chassis/stm32_chassis.elf"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/RCJchassisdiver"
+                "cwd": "${workspaceFolder}"
             },
             "dependsOn": [
                 "STM32: build Debug"

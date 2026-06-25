@@ -3,6 +3,7 @@ Debug/
 Release/
 cmake-build-*/
 mx.scratch/
+.venv/
 
 # STM32CubeIDE / CubeMX local metadata
 .settings/

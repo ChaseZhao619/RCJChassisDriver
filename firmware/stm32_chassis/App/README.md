@@ -10,7 +10,7 @@
 
 Copyright © 2026 ChaseZhao619 and contributors.
 
-完整条款见 [`../../LICENSE`](../../LICENSE)。
+完整条款见 [`../../../LICENSE`](../../../LICENSE)。
 
 ## 安全与免责声明
 
@@ -28,7 +28,7 @@ Copyright © 2026 ChaseZhao619 and contributors.
 - payload、单位、范围、默认值和错误回复是否变化。
 - 是否兼容旧版上位机或树莓派程序。
 - 是否会改变 `ok`、`busy`、`done` 的发送时机。
-- 是否需要更新 `RCJappforchase` 的命令生成或解析逻辑。
+- 是否需要更新 `apps/desktop_controller` 的命令生成或解析逻辑。
 
 维护规则：
 
@@ -77,7 +77,7 @@ Copyright © 2026 ChaseZhao619 and contributors.
    cmd_request *<CRC16>
    ```
 
-调试时可以用上位机的 `--frame` 功能生成带 CRC 的命令帧，见 [`../../RCJappforchase/README.md`](../../RCJappforchase/README.md)。
+调试时可以用上位机的 `--frame` 功能生成带 CRC 的命令帧，见 [`../../../apps/desktop_controller/README.md`](../../../apps/desktop_controller/README.md)。
 
 ## 工作原理
 

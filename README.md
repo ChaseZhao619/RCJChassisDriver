@@ -14,9 +14,9 @@ Copyright © 2026 ChaseZhao619 and contributors.
 
 第三方组件遵循其各自许可证：
 
-- STM32 HAL：见 [`RCJchassisdiver/Drivers/STM32F4xx_HAL_Driver/LICENSE.txt`](RCJchassisdiver/Drivers/STM32F4xx_HAL_Driver/LICENSE.txt)。
-- CMSIS：见 [`RCJchassisdiver/Drivers/CMSIS/LICENSE.txt`](RCJchassisdiver/Drivers/CMSIS/LICENSE.txt)。
-- STM32F4xx CMSIS Device：见 [`RCJchassisdiver/Drivers/CMSIS/Device/ST/STM32F4xx/LICENSE.txt`](RCJchassisdiver/Drivers/CMSIS/Device/ST/STM32F4xx/LICENSE.txt)。
+- STM32 HAL：见 [`firmware/stm32_chassis/Drivers/STM32F4xx_HAL_Driver/LICENSE.txt`](firmware/stm32_chassis/Drivers/STM32F4xx_HAL_Driver/LICENSE.txt)。
+- CMSIS：见 [`firmware/stm32_chassis/Drivers/CMSIS/LICENSE.txt`](firmware/stm32_chassis/Drivers/CMSIS/LICENSE.txt)。
+- STM32F4xx CMSIS Device：见 [`firmware/stm32_chassis/Drivers/CMSIS/Device/ST/STM32F4xx/LICENSE.txt`](firmware/stm32_chassis/Drivers/CMSIS/Device/ST/STM32F4xx/LICENSE.txt)。
 
 ## 安全与免责声明
 
@@ -45,13 +45,13 @@ Copyright © 2026 ChaseZhao619 and contributors.
 
 - `Core/` 下多数文件由 STM32CubeMX 生成，重新生成代码时注意保留 `USER CODE` 区域。
 - 新增业务逻辑优先放在 `App/` 或 `Bsp/`，不要混入 CubeMX 生成代码。
-- 修改串口协议时，同步更新 `App/Src/app_pi_comm.c` 和 [`App/README.md`](RCJchassisdiver/App/README.md)。
-- 修改外设引脚时，同步更新 `.ioc`、CubeMX 生成代码和 [`RCJchassisdiver/README.md`](RCJchassisdiver/README.md) 的外设表。
+- 修改串口协议时，同步更新 `App/Src/app_pi_comm.c` 和 [`App/README.md`](firmware/stm32_chassis/App/README.md)。
+- 修改外设引脚时，同步更新 `.ioc`、CubeMX 生成代码和 [`firmware/stm32_chassis/README.md`](firmware/stm32_chassis/README.md) 的外设表。
 
 ## 你应该先知道
 
-- `RCJchassisdiver` 是 STM32F407 固件，负责电机、传感器、执行器和串口协议。
-- `RCJappforchase` 是 Ubuntu 本地上位机，负责地图、路径规划、串口控制和调试操作。
+- `firmware/stm32_chassis` 是 STM32F407 固件，负责电机、传感器、执行器和串口协议。
+- `apps/desktop_controller` 是 Ubuntu 本地上位机，负责地图、路径规划、串口控制和调试操作。
 - 上位机和树莓派通过串口协议控制 STM32，常用命令包括 `cmd_dis`、`cmd_turn`、`cmd_dkmotor`。
 - STM32 固件是交叉编译工程；上位机是 Ubuntu 本机编译工程，两者使用不同 CMake preset 和不同 build 目录。
 - 调试底盘前必须先保证急停、架空测试和运动方向检查可用。
@@ -60,10 +60,10 @@ Copyright © 2026 ChaseZhao619 and contributors.
 
 | 目录 | 面向对象 | 说明 |
 | --- | --- | --- |
-| [`RCJchassisdiver`](RCJchassisdiver/README.md) | 固件开发者、嵌入式调试人员 | STM32 底盘固件主文档 |
-| [`RCJchassisdiver/App`](RCJchassisdiver/App/README.md) | 协议开发者、上位机/树莓派开发者 | 应用层状态机与串口协议 |
-| [`RCJchassisdiver/Bsp`](RCJchassisdiver/Bsp/README.md) | 硬件调试人员、控制参数调试人员 | BSP 驱动与调参手册 |
-| [`RCJappforchase`](RCJappforchase/README.md) | 上位机使用者、Qt 开发者 | Ubuntu/Qt 上位机使用说明 |
+| [`firmware/stm32_chassis`](firmware/stm32_chassis/README.md) | 固件开发者、嵌入式调试人员 | STM32 底盘固件主文档 |
+| [`firmware/stm32_chassis/App`](firmware/stm32_chassis/App/README.md) | 协议开发者、上位机/树莓派开发者 | 应用层状态机与串口协议 |
+| [`firmware/stm32_chassis/Bsp`](firmware/stm32_chassis/Bsp/README.md) | 硬件调试人员、控制参数调试人员 | BSP 驱动与调参手册 |
+| [`apps/desktop_controller`](apps/desktop_controller/README.md) | 上位机使用者、Qt 开发者 | Ubuntu/Qt 上位机使用说明 |
 
 ## 快速开始
 
@@ -89,14 +89,14 @@ cmake --build --preset stm32-debug
 主要产物：
 
 ```text
-build/stm32/stm32-debug/RCJchassisdiver/RCJchassisdiver.elf
-build/stm32/stm32-debug/RCJchassisdiver/RCJchassisdiver.map
+build/stm32/stm32-debug/firmware/stm32_chassis/stm32_chassis.elf
+build/stm32/stm32-debug/firmware/stm32_chassis/stm32_chassis.map
 ```
 
 也可以进入固件目录使用旧 preset：
 
 ```bash
-cd RCJchassisdiver
+cd firmware/stm32_chassis
 cmake --preset Debug
 cmake --build --preset Debug
 ```
@@ -113,15 +113,15 @@ cmake --build --preset host-debug
 可执行文件：
 
 ```text
-build/host/debug/RCJappforchase/rcj_appforchase
+build/host/debug/apps/desktop_controller/rcj_appforchase
 ```
 
 ### 4. 下一步读什么
 
-- 想烧录和调试 STM32：读 [`RCJchassisdiver/README.md`](RCJchassisdiver/README.md)。
-- 想发串口命令控制底盘：读 [`RCJchassisdiver/App/README.md`](RCJchassisdiver/App/README.md)。
-- 想调 PID、方向、里程计：读 [`RCJchassisdiver/Bsp/README.md`](RCJchassisdiver/Bsp/README.md)。
-- 想使用图形上位机：读 [`RCJappforchase/README.md`](RCJappforchase/README.md)。
+- 想烧录和调试 STM32：读 [`firmware/stm32_chassis/README.md`](firmware/stm32_chassis/README.md)。
+- 想发串口命令控制底盘：读 [`firmware/stm32_chassis/App/README.md`](firmware/stm32_chassis/App/README.md)。
+- 想调 PID、方向、里程计：读 [`firmware/stm32_chassis/Bsp/README.md`](firmware/stm32_chassis/Bsp/README.md)。
+- 想使用图形上位机：读 [`apps/desktop_controller/README.md`](apps/desktop_controller/README.md)。
 
 ## 工作原理
 
@@ -137,22 +137,30 @@ Ubuntu 上位机 / 树莓派
 
 ```text
 .
-├── RCJchassisdiver/      # STM32 固件工程
-├── RCJappforchase/       # Ubuntu/Qt 上位机工程
-├── CMakeLists.txt        # 总工程入口
-├── CMakePresets.json     # STM32 和 host app 构建预设
-└── .vscode/tasks.json    # VS Code 总工程构建任务
+├── firmware/
+│   └── stm32_chassis/          # STM32 固件工程
+├── apps/
+│   └── desktop_controller/     # Ubuntu/Qt 上位机工程
+├── assets/
+│   └── maps/                   # 地图和车体图片资源
+├── docs/
+│   ├── firmware/               # 固件设计文档
+│   └── hardware/               # 传感器和硬件参考资料
+├── tools/                      # 调试和工具脚本
+├── CMakeLists.txt              # 总工程入口
+├── CMakePresets.json           # STM32 和 host app 构建预设
+└── .vscode/tasks.json          # VS Code 总工程构建任务
 ```
 
 ## 开发者入口
 
 | 你要做什么 | 推荐阅读 |
 | --- | --- |
-| 理解 STM32 固件启动流程 | [`RCJchassisdiver/README.md`](RCJchassisdiver/README.md) |
-| 新增或修改串口命令 | [`RCJchassisdiver/App/README.md`](RCJchassisdiver/App/README.md) |
-| 调整底盘运动参数 | [`RCJchassisdiver/App/README.md`](RCJchassisdiver/App/README.md) 与 [`RCJchassisdiver/Bsp/README.md`](RCJchassisdiver/Bsp/README.md) |
-| 调整电机方向、PID、里程计 | [`RCJchassisdiver/Bsp/README.md`](RCJchassisdiver/Bsp/README.md) |
-| 使用或开发 Qt 上位机 | [`RCJappforchase/README.md`](RCJappforchase/README.md) |
+| 理解 STM32 固件启动流程 | [`firmware/stm32_chassis/README.md`](firmware/stm32_chassis/README.md) |
+| 新增或修改串口命令 | [`firmware/stm32_chassis/App/README.md`](firmware/stm32_chassis/App/README.md) |
+| 调整底盘运动参数 | [`firmware/stm32_chassis/App/README.md`](firmware/stm32_chassis/App/README.md) 与 [`firmware/stm32_chassis/Bsp/README.md`](firmware/stm32_chassis/Bsp/README.md) |
+| 调整电机方向、PID、里程计 | [`firmware/stm32_chassis/Bsp/README.md`](firmware/stm32_chassis/Bsp/README.md) |
+| 使用或开发 Qt 上位机 | [`apps/desktop_controller/README.md`](apps/desktop_controller/README.md) |
 
 ## 常见问题
 
@@ -181,4 +189,4 @@ arm-none-eabi-gcc --version
 
 ### 为什么底盘运动方向不对？
 
-不要先调 PID。先按 [`BSP 调参手册`](RCJchassisdiver/Bsp/README.md) 检查电机编号、旋转方向、反馈方向、陀螺仪方向和运动坐标约定。
+不要先调 PID。先按 [`BSP 调参手册`](firmware/stm32_chassis/Bsp/README.md) 检查电机编号、旋转方向、反馈方向、陀螺仪方向和运动坐标约定。

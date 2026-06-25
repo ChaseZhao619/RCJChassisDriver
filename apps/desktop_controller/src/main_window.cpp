@@ -40,7 +40,7 @@ MainWindow::MainWindow(QWidget *parent)
     resize(1280, 860);
 
     map_ = new MapWidget(this);
-    map_->loadMap(QStringLiteral(RCJ_APP_SOURCE_DIR) + QStringLiteral("/Pic/map.png"));
+    map_->loadMap(QStringLiteral(RCJ_APP_ASSET_DIR) + QStringLiteral("/map.png"));
 
     auto *splitter = new QSplitter(this);
     splitter->addWidget(map_);

@@ -6,7 +6,7 @@
             "hidden": true,
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/stm32/${presetName}",
-            "toolchainFile": "${sourceDir}/RCJchassisdiver/cmake/gcc-arm-none-eabi.cmake",
+            "toolchainFile": "${sourceDir}/firmware/stm32_chassis/cmake/gcc-arm-none-eabi.cmake",
             "cacheVariables": {
                 "RCJ_BUILD_STM32": "ON",
                 "RCJ_BUILD_HOST_APP": "OFF"

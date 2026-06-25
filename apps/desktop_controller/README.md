@@ -1,6 +1,6 @@
-# RCJappforchase
+# apps/desktop_controller
 
-`RCJappforchase` 是 Ubuntu/Qt 上位机程序，用于地图可视化、路径规划、串口控制和外设调试。它通过串口协议控制 STM32 固件，最终把路径拆成 `cmd_dis`、`cmd_turn` 等命令发送给 `RCJchassisdiver`。
+`apps/desktop_controller` 是 Ubuntu/Qt 上位机程序，用于地图可视化、路径规划、串口控制和外设调试。它通过串口协议控制 STM32 固件，最终把路径拆成 `cmd_dis`、`cmd_turn` 等命令发送给 `firmware/stm32_chassis`。
 
 ## 版权与许可
 
@@ -8,7 +8,7 @@
 
 Copyright © 2026 ChaseZhao619 and contributors.
 
-完整条款见 [`../LICENSE`](../LICENSE)。Qt 及系统依赖遵循其各自许可证，发布二进制程序时应同时检查相关依赖的分发要求。
+完整条款见 [`../../LICENSE`](../../LICENSE)。Qt 及系统依赖遵循其各自许可证，发布二进制程序时应同时检查相关依赖的分发要求。
 
 ## 安全与免责声明
 
@@ -39,7 +39,7 @@ Copyright © 2026 ChaseZhao619 and contributors.
 
 - 上位机运行在 Ubuntu 本机，不运行在 STM32 上。
 - 串口参数固定为 `115200 8N1`。
-- 上位机通过 USART6 协议和 STM32 通信，协议说明见 [`../RCJchassisdiver/App/README.md`](../RCJchassisdiver/App/README.md)。
+- 上位机通过 USART6 协议和 STM32 通信，协议说明见 [`../../firmware/stm32_chassis/App/README.md`](../../firmware/stm32_chassis/App/README.md)。
 - 地图规划结果会被分段转换为底盘运动命令。
 - 首次联调前，应先确认固件能单独执行 `cmd_dis` 和 `cmd_turn`。
 
@@ -63,13 +63,13 @@ cmake --build --preset host-debug
 可执行文件：
 
 ```text
-build/host/debug/RCJappforchase/rcj_appforchase
+build/host/debug/apps/desktop_controller/rcj_appforchase
 ```
 
 ### 3. 启动 GUI
 
 ```bash
-./build/host/debug/RCJappforchase/rcj_appforchase
+./build/host/debug/apps/desktop_controller/rcj_appforchase
 ```
 
 ### 4. 生成一条带 CRC 的测试帧
@@ -77,7 +77,7 @@ build/host/debug/RCJappforchase/rcj_appforchase
 保留 `--frame` 入口用于协议测试：
 
 ```bash
-./build/host/debug/RCJappforchase/rcj_appforchase --frame cmd_dis 10 0
+./build/host/debug/apps/desktop_controller/rcj_appforchase --frame cmd_dis 10 0
 ```
 
 输出可直接用于串口发送。
@@ -86,7 +86,7 @@ build/host/debug/RCJappforchase/rcj_appforchase
 
 1. 启动 GUI。
 2. 选择 STM32 对应串口，例如 `/dev/ttyUSB*` 或 `/dev/ttyACM*`。
-3. 加载地图，默认地图为 `Pic/map.png`。
+3. 加载地图，默认地图为 `assets/maps/map.png`。
 4. 通过两点标定设置 cm/px 比例。
 5. 设置外围边界，边界外区域视为绝对禁行区。
 6. 添加或调整障碍物。
@@ -114,7 +114,7 @@ build/host/debug/RCJappforchase/rcj_appforchase
 | 功能 | 说明 |
 | --- | --- |
 | 串口 | 扫描 Qt 可见端口，例如 `/dev/ttyUSB*`、`/dev/ttyACM*`，参数固定为 `115200 8N1` |
-| 地图 | 默认加载 `Pic/map.png`，通过两点标定获得 cm/px 比例 |
+| 地图 | 默认加载 `assets/maps/map.png`，通过两点标定获得 cm/px 比例 |
 | 边界 | 外围边界为绝对禁行区，可在地图上重新绘制边界多边形 |
 | 障碍 | 支持矩形、圆形、多边形障碍，可拖动位置，矩形/圆形可调整尺寸 |
 | 路径 | 使用 2 cm 栅格 A*，按小车半径 10.5 cm + 2 cm 安全余量避障 |
@@ -139,7 +139,7 @@ build/host/debug/RCJappforchase/rcj_appforchase
 示例：
 
 ```bash
-./build/host/debug/RCJappforchase/rcj_appforchase --frame cmd_turn 90
+./build/host/debug/apps/desktop_controller/rcj_appforchase --frame cmd_turn 90
 ```
 
 ## 常见问题

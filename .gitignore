@@ -1,5 +1,6 @@
 build/
 cmake-build-*/
+.toolchains/
 
 # CMake local metadata
 CMakeUserPresets.json
@@ -28,6 +29,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+firmware/stm32_chassis/.venv/
 
 # OS/editor noise
 .DS_Store

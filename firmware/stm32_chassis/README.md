@@ -1,6 +1,6 @@
-# RCJchassisdiver
+# firmware/stm32_chassis
 
-`RCJchassisdiver` 是 STM32F407 底盘固件工程，负责底盘闭环运动、CAN 电机控制、BNO085 姿态读取、BE1732 红外读取、吸力电机、踢球电机、继电器和面向上位机/树莓派的串口协议。
+`firmware/stm32_chassis` 是 STM32F407 底盘固件工程，负责底盘闭环运动、CAN 电机控制、BNO085 姿态读取、BE1732 红外读取、吸力电机、踢球电机、继电器和面向上位机/树莓派的串口协议。
 
 这篇文档是固件主入口。完整串口协议请看 [`App/README.md`](App/README.md)，底层硬件调参请看 [`Bsp/README.md`](Bsp/README.md)。
 
@@ -10,7 +10,7 @@
 
 Copyright © 2026 ChaseZhao619 and contributors.
 
-完整条款见 [`../LICENSE`](../LICENSE)。第三方 STM32 HAL/CMSIS 驱动遵循 `Drivers/` 下各自的许可证文件。
+完整条款见 [`../../LICENSE`](../../LICENSE)。第三方 STM32 HAL/CMSIS 驱动遵循 `Drivers/` 下各自的许可证文件。
 
 ## 安全与免责声明
 
@@ -93,7 +93,7 @@ Copyright © 2026 ChaseZhao619 and contributors.
 ├── Core/                         # STM32CubeMX 生成代码和主循环
 ├── Drivers/                      # STM32 HAL、CMSIS 驱动
 ├── cmake/                        # 交叉编译工具链和 CubeMX CMake 文件
-├── RCJchassisdiver.ioc           # STM32CubeMX 工程配置
+├── stm32_chassis.ioc                    # STM32CubeMX 工程配置
 ├── STM32F407XX_FLASH.ld          # 链接脚本，最后 128K Flash sector 用于运行参数
 └── startup_stm32f407xx.s         # 启动文件
 ```
@@ -108,7 +108,7 @@ sudo apt install cmake ninja-build gcc-arm-none-eabi
 
 ### 2. 配置并编译
 
-在 `RCJchassisdiver/` 目录执行：
+在 `firmware/stm32_chassis/` 目录执行：
 
 ```bash
 cmake --preset Debug
@@ -125,8 +125,8 @@ cmake --build --preset Release
 默认产物：
 
 ```text
-build/Debug/RCJchassisdiver.elf
-build/Debug/RCJchassisdiver.map
+build/Debug/stm32_chassis.elf
+build/Debug/stm32_chassis.map
 ```
 
 也可以从仓库根目录构建：
@@ -142,7 +142,7 @@ cmake --build --preset stm32-debug
 
 ```bash
 openocd -f interface/stlink.cfg -f target/stm32f4x.cfg \
-  -c "program build/Debug/RCJchassisdiver.elf verify reset exit"
+  -c "program build/Debug/stm32_chassis.elf verify reset exit"
 ```
 
 > 注意：下载前确认底盘处于安全状态。首次烧录或改动运动参数后，建议架空底盘并准备独立急停。
