@@ -1,0 +1,41 @@
+name: Feature request
+description: 提出新功能、改进建议或重构建议
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      placeholder: 你希望新增或改进什么能力？
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响模块
+      options:
+        - firmware/stm32_chassis
+        - apps/desktop_controller
+        - serial protocol
+        - BSP/hardware tuning
+        - documentation
+        - build/config
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      placeholder: 简要说明你认为可以怎么实现。
+    validations:
+      required: false
+  - type: textarea
+    id: safety
+    attributes:
+      label: 安全和兼容性影响
+      placeholder: 是否会驱动硬件？是否改变协议？是否影响旧配置？
+    validations:
+      required: true

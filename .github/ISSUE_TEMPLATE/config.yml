@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全问题 / Security issue
+    url: https://github.com/ChaseZhao619/RCJChassisDriver/security/policy
+    about: 可能导致底盘失控、执行器误动作或硬件损坏的问题，请先阅读安全策略。
+  - name: 串口协议文档
+    url: https://github.com/ChaseZhao619/RCJChassisDriver/tree/refactor/firmware/stm32_chassis/App
+    about: 发送命令或 CRC 相关问题，请先查看 App 协议文档。

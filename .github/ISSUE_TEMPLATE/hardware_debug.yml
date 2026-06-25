@@ -1,0 +1,74 @@
+name: Hardware debug / tuning
+description: 反馈硬件联调、方向、PID、阈值或传感器问题
+title: "[Hardware]: "
+labels:
+  - hardware
+  - tuning
+body:
+  - type: markdown
+    attributes:
+      value: |
+        硬件调试问题必须说明安全措施。方向错误、PID 振荡、电流过大、PWM 异常等问题可能造成机械风险。
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 现象描述
+      placeholder: 例如：前进时稳定向左漂移；转向环接近目标后持续抖动。
+    validations:
+      required: true
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: 子系统
+      options:
+        - chassis motor/CAN
+        - chassis odometry
+        - yaw/IMU
+        - BE1732 infrared
+        - suction motor/PWM
+        - suction detect/GPIO
+        - kick/function motor
+        - relay/DCT
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: 硬件与供电
+      placeholder: |
+        电机/电调:
+        传感器:
+        电池/电源:
+        机械结构:
+    validations:
+      required: true
+  - type: textarea
+    id: params
+    attributes:
+      label: 相关参数
+      description: 写出改过的方向宏、PID、阈值、速度、电流或 PWM 脉宽。
+      placeholder: |
+        BSP_CHASSIS_WHEEL_SPEED_KP:
+        BSP_CHASSIS_ANGLE_KP:
+        MAX_CURRENT:
+    validations:
+      required: false
+  - type: textarea
+    id: test_condition
+    attributes:
+      label: 测试条件与安全措施
+      placeholder: |
+        是否架空:
+        是否低速:
+        是否准备急停:
+        是否隔离负载:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志、串口回复或观测数据
+      placeholder: 粘贴关键日志、反馈值、误差、温升或波形摘要。
+    validations:
+      required: false

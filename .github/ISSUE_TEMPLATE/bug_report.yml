@@ -1,0 +1,79 @@
+name: Bug report
+description: 报告软件、固件或上位机中的可复现问题
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        如果问题可能导致底盘失控、执行器误动作或硬件损坏，请不要公开完整危险复现步骤，请先阅读 `SECURITY.md`。
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题摘要
+      description: 简要说明发生了什么。
+      placeholder: 例如：发送 cmd_dis 后固件返回 ok，但不会发送 done。
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响模块
+      options:
+        - firmware/stm32_chassis App
+        - firmware/stm32_chassis Bsp
+        - firmware/stm32_chassis Core/CubeMX
+        - apps/desktop_controller
+        - build/config
+        - documentation
+        - unknown
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 写出安全、可控的复现步骤。涉及危险硬件动作时，请只写安全摘要。
+      placeholder: |
+        1. 架空底盘
+        2. 打开串口
+        3. 发送 ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      placeholder: 说明你预期系统应该如何响应。
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      placeholder: 说明实际输出、日志、回复帧或硬件现象。
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      description: 包括系统、工具链、硬件、固件分支、上位机版本等。
+      placeholder: |
+        OS:
+        Branch/commit:
+        Toolchain:
+        Hardware:
+        Power:
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: 安全确认
+      options:
+        - label: 我已确认复现步骤不会直接诱发危险硬件动作，或已省略危险细节。
+          required: true
+        - label: 如果涉及运动测试，我已说明是否架空、低速或隔离负载。
+          required: false
