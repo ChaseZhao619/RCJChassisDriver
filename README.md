@@ -4,6 +4,20 @@ RCJChassisDriver 是 RCJ 机器人底盘控制系统仓库，包含 STM32 底盘
 
 本文档是项目总入口。如果你是第一次接触本工程，先按“快速开始”跑通构建；如果你已经在开发功能，直接查看“开发者入口”。
 
+## 文档归属与致谢
+
+本文档归属 Sendelta-RCJ 校队，为备战并参与 2026 年 RCJ 竞赛所编制的底盘专项文件。
+
+Chase Zhao、Nick Wei、Terry Zhu、Esther Wang、Gavin Li、Eric Ren 为本项目作出重要突出贡献，特此列明。
+
+衷心感谢全体成员在项目推进过程中的不懈付出与协作奉献。
+
+This document belongs to the Sendelta-RCJ school team and is a special chassis document compiled for the preparation and participation in the 2026 RCJ Competition.
+
+Chase Zhao, Nick Wei, Terry Zhu, Esther Wang, Gavin Li, Eric Ren have made significant and outstanding contributions to this project, which are hereby listed.
+
+Sincere gratitude is extended to all members for their persistent efforts and collaborative dedication throughout the project.
+
 ## 版权与许可
 
 > 重要：本项目采用 GNU General Public License v3.0 only（GPL-3.0-only）授权。分发修改版或基于本项目的派生作品时，需要遵守 GPL-3.0 的源代码公开和同许可证分发要求。
