@@ -1,4 +1,6 @@
 #include "app_chassis_task.h"
+#include "app_lqr.h"
+#include "app_control_safety.h"
 
 #include "bsp_chassis.h"
 #include "bsp_chassis_odom.h"
@@ -18,6 +20,7 @@ typedef enum
     APP_CHASSIS_MODE_MOVE,         /* cmd_dis：沿世界坐标线段移动。 */
     APP_CHASSIS_MODE_TURN,         /* cmd_turn：原地转到绝对 yaw。 */
     APP_CHASSIS_MODE_DKMOTOR,      /* cmd_dkmotor：持续运动，无自动完成事件。 */
+    APP_CHASSIS_MODE_VELOCITY,     /* cmd_vel：车体速度命令，需周期续发。 */
 } AppChassisMode;
 
 static AppChassisMode app_mode;
@@ -42,6 +45,14 @@ static float app_dkmotor_speed_rpm; /* 百分比换算后的电机轴目标 [rpm
 static float app_dkmotor_angle_deg; /* 持续运动方向 [deg]。 */
 static uint8_t app_dkmotor_head_lock; /* 1=保持下发时航向，0=转向后前进。 */
 static uint8_t app_move_profile;    /* 当前 MOVE 的 SHARP/NORMAL/SMOOTH 档位。 */
+static float app_velocity_forward_mm_s;
+static float app_velocity_left_mm_s;
+static float app_velocity_yaw_rad_s;
+static uint32_t app_continuous_command_tick;
+static uint32_t app_control_tick;
+static uint32_t app_control_period_ms;
+static uint32_t app_control_missed_deadlines;
+static uint8_t app_control_started;
 
 static const float app_pi = 3.14159265358979323846f;
 
@@ -75,26 +86,20 @@ static uint8_t AreChassisMotorsStopped(void)
     return 1U;
 }
 
+static uint8_t AreChassisMotorsOnline(void)
+{
+    uint8_t can_id;
+    for (can_id = 1U; can_id <= BSP_MOTOR_CHASSIS_COUNT; can_id++)
+    {
+        if (BspMotor_IsOnline(can_id, APP_CHASSIS_TASK_MOTOR_TIMEOUT_MS) == 0U)
+            return 0U;
+    }
+    return 1U;
+}
+
 static float AbsFloat(float value)
 {
     return (value < 0.0f) ? -value : value;
-}
-
-static float LimitFloat(float value, float limit)
-{
-    float abs_limit = AbsFloat(limit);
-
-    if (value > abs_limit)
-    {
-        return abs_limit;
-    }
-
-    if (value < -abs_limit)
-    {
-        return -abs_limit;
-    }
-
-    return value;
 }
 
 static uint8_t IsStoppedStable(uint32_t now)
@@ -126,6 +131,21 @@ static void SetMode(AppChassisMode mode)
     BspChassis_ResetPid();
 }
 
+static void StopForFault(void)
+{
+    if (app_odom_ready != 0U)
+        app_target_yaw_deg = BspChassisOdom_GetPose()->yaw_deg;
+    app_motion_enabled = 0U;
+    app_active_command = APP_CHASSIS_TASK_DONE_NONE;
+    app_done_event = APP_CHASSIS_TASK_DONE_NONE;
+    app_dkmotor_speed_rpm = 0.0f;
+    app_velocity_forward_mm_s = 0.0f;
+    app_velocity_left_mm_s = 0.0f;
+    app_velocity_yaw_rad_s = 0.0f;
+    SetMode(APP_CHASSIS_MODE_IDLE);
+    (void)BspChassis_Stop();
+}
+
 static void MarkActiveCommandDone(void)
 {
     /* 完成事件只有一个存储槽；通信任务应及时 Consume。 */
@@ -148,7 +168,7 @@ static float CalcSegmentProgress(const BspChassisOdomPose *pose)
 {
     /*
      * 将当前位置投影到起点->目标向量：起点为 0，目标为 1，越过目标可大于 1。
-     * 该判据允许存在少量横向误差，横向误差由 DriveAlongSegmentGyro 单独纠正。
+     * 投影进度用于速度曲线与越过终点判断，到点还要求横向误差在容差内。
      */
     float total_dx = app_target_x_mm - app_segment_start_x_mm;
     float total_dy = app_target_y_mm - app_segment_start_y_mm;
@@ -169,6 +189,10 @@ static float CalcSegmentProgress(const BspChassisOdomPose *pose)
 
 static uint8_t IsMoveTargetReached(const BspChassisOdomPose *pose)
 {
+    float dx = app_target_x_mm - app_segment_start_x_mm;
+    float dy = app_target_y_mm - app_segment_start_y_mm;
+    float distance = sqrtf(dx * dx + dy * dy);
+    float cross_error;
     if (BspChassisOdom_IsAt(app_target_x_mm,
                             app_target_y_mm,
                             BSP_CHASSIS_ODOM_POS_TOLERANCE_MM) != 0U)
@@ -176,7 +200,11 @@ static uint8_t IsMoveTargetReached(const BspChassisOdomPose *pose)
         return 1U;
     }
 
-    return (CalcSegmentProgress(pose) >= APP_CHASSIS_TASK_SEGMENT_DONE_PROGRESS) ? 1U : 0U;
+    if (distance < 1.0f) return 1U;
+    cross_error = ((pose->x_mm - app_segment_start_x_mm) * -dy +
+                   (pose->y_mm - app_segment_start_y_mm) * dx) / distance;
+    return ((CalcSegmentProgress(pose) >= APP_CHASSIS_TASK_SEGMENT_DONE_PROGRESS) &&
+            (AbsFloat(cross_error) <= BSP_CHASSIS_ODOM_POS_TOLERANCE_MM)) ? 1U : 0U;
 }
 
 static float CalcProfileMaxSpeed(const BspChassisOdomPose *pose)
@@ -228,146 +256,103 @@ static float CalcProfileMaxSpeed(const BspChassisOdomPose *pose)
     return APP_CHASSIS_TASK_MOVE_SPEED_MM_S * scale;
 }
 
-static HAL_StatusTypeDef DriveAlongSegmentGyro(const BspChassisOdomPose *pose,
-                                               float gyro_z_deg_s,
-                                               float max_speed_mm_s)
+static HAL_StatusTypeDef DriveLqr(const BspChassisOdomPose *pose,
+                                  float gyro_z_deg_s,
+                                  float target_x_mm,
+                                  float target_y_mm,
+                                  float target_yaw_deg,
+                                  float vx_world_mm_s,
+                                  float vy_world_mm_s,
+                                  float wz_rad_s,
+                                  uint8_t track_x,
+                                  uint8_t track_y,
+                                  uint8_t track_yaw,
+                                  float max_speed_mm_s)
 {
-    /*
-     * ux/uy 为线段切向单位向量，nx/ny 为左法向；当前位置被分解为沿线进度和横向误差。
-     * 切向速度负责到达终点，法向 P 控制负责回线，合成世界速度后再转到车体坐标。
-     */
-    float total_dx = app_target_x_mm - app_segment_start_x_mm;
-    float total_dy = app_target_y_mm - app_segment_start_y_mm;
-    float total_dist = sqrtf((total_dx * total_dx) + (total_dy * total_dy));
-    float ux;
-    float uy;
-    float nx;
-    float ny;
-    float done_dx;
-    float done_dy;
-    float along_done;
-    float along_remaining;
-    float cross_error;
-    float along_speed;
-    float cross_speed;
-    float vx_world_mm_s;
-    float vy_world_mm_s;
-    float yaw_rad;
+    const float rad_per_deg = app_pi / 180.0f;
     float cos_yaw;
     float sin_yaw;
     float forward_mm_s;
     float left_mm_s;
+    AppLqrState state;
+    AppLqrReference reference;
+    AppLqrOutput output;
 
-    if ((pose == NULL) || (total_dist < 1.0f))
-    {
-        return BspChassisOdom_DriveToGyro(app_target_x_mm,
-                                          app_target_y_mm,
-                                          app_target_yaw_deg,
-                                          gyro_z_deg_s,
-                                          max_speed_mm_s,
-                                          BSP_CHASSIS_ODOM_MAX_CURRENT);
-    }
+    if ((pose == NULL) || !isfinite(pose->x_mm) || !isfinite(pose->y_mm) ||
+        !isfinite(pose->yaw_deg) || !isfinite(pose->vx_mm_s) ||
+        !isfinite(pose->vy_mm_s) || !isfinite(gyro_z_deg_s) ||
+        !isfinite(target_x_mm) || !isfinite(target_y_mm) ||
+        !isfinite(target_yaw_deg) || !isfinite(vx_world_mm_s) ||
+        !isfinite(vy_world_mm_s) || !isfinite(wz_rad_s)) return HAL_ERROR;
+    state.x_m = pose->x_mm * 0.001f;
+    state.y_m = pose->y_mm * 0.001f;
+    state.yaw_rad = pose->yaw_deg * rad_per_deg;
+    state.vx_m_s = pose->vx_mm_s * 0.001f;
+    state.vy_m_s = pose->vy_mm_s * 0.001f;
+    state.wz_rad_s = gyro_z_deg_s * rad_per_deg * (float)BSP_CHASSIS_GYRO_Z_DIR;
+    reference.x_m = target_x_mm * 0.001f;
+    reference.y_m = target_y_mm * 0.001f;
+    reference.yaw_rad = target_yaw_deg * rad_per_deg;
+    reference.vx_m_s = vx_world_mm_s * 0.001f;
+    reference.vy_m_s = vy_world_mm_s * 0.001f;
+    reference.wz_rad_s = wz_rad_s;
+    reference.track_x = track_x;
+    reference.track_y = track_y;
+    reference.track_yaw = track_yaw;
+    output = AppLqr_Calculate(&state, &reference, max_speed_mm_s * 0.001f);
+    output = AppLqr_LimitOmni(output, state.yaw_rad,
+                              APP_LQR_VELOCITY_LIMIT_M_S,
+                              BSP_CHASSIS_ROTATION_RADIUS_MM * 0.001f,
+                              BSP_CHASSIS_FORWARD_TO_LEFT_COMP,
+                              BSP_CHASSIS_LEFT_TO_FORWARD_COMP);
 
-    ux = total_dx / total_dist;
-    uy = total_dy / total_dist;
-    nx = -uy;
-    ny = ux;
-
-    done_dx = pose->x_mm - app_segment_start_x_mm;
-    done_dy = pose->y_mm - app_segment_start_y_mm;
-    along_done = (done_dx * ux) + (done_dy * uy);
-    along_remaining = total_dist - along_done;
-    if (along_remaining < 0.0f)
-    {
-        along_remaining = 0.0f;
-    }
-
-    cross_error = (done_dx * nx) + (done_dy * ny);
-    if (AbsFloat(cross_error) <= APP_CHASSIS_TASK_LINE_CROSS_DEADBAND_MM)
-    {
-        cross_error = 0.0f;
-    }
-
-    along_speed = along_remaining * BSP_CHASSIS_ODOM_POS_KP;
-    if (along_speed > max_speed_mm_s)
-    {
-        along_speed = max_speed_mm_s;
-    }
-    if ((along_remaining > APP_CHASSIS_TASK_MIN_SPEED_DISTANCE_MM) &&
-        (along_speed < BSP_CHASSIS_ODOM_MIN_SPEED_MM_S))
-    {
-        along_speed = BSP_CHASSIS_ODOM_MIN_SPEED_MM_S;
-    }
-
-    cross_speed = LimitFloat(-cross_error * APP_CHASSIS_TASK_LINE_CROSS_KP,
-                             APP_CHASSIS_TASK_LINE_CROSS_MAX_MM_S);
-    vx_world_mm_s = (ux * along_speed) + (nx * cross_speed);
-    vy_world_mm_s = (uy * along_speed) + (ny * cross_speed);
-
-    yaw_rad = pose->yaw_deg * app_pi / 180.0f;
-    cos_yaw = cosf(yaw_rad);
-    sin_yaw = sinf(yaw_rad);
-    forward_mm_s = (vx_world_mm_s * cos_yaw) + (vy_world_mm_s * sin_yaw);
-    left_mm_s = (-vx_world_mm_s * sin_yaw) + (vy_world_mm_s * cos_yaw);
-
-    return BspChassis_SetBodySpeedAngleHoldGyro(BspChassisOdom_MmSToMotorRpm(forward_mm_s),
-                                                BspChassisOdom_MmSToMotorRpm(left_mm_s),
-                                                app_target_yaw_deg,
-                                                pose->yaw_deg,
-                                                gyro_z_deg_s,
-                                                BSP_CHASSIS_ODOM_MAX_CURRENT);
+    cos_yaw = cosf(state.yaw_rad);
+    sin_yaw = sinf(state.yaw_rad);
+    forward_mm_s = 1000.0f * (output.vx_m_s * cos_yaw + output.vy_m_s * sin_yaw);
+    left_mm_s = 1000.0f * (-output.vx_m_s * sin_yaw + output.vy_m_s * cos_yaw);
+    return BspChassis_SetBodySpeed(BspChassisOdom_MmSToMotorRpm(forward_mm_s),
+                                   BspChassisOdom_MmSToMotorRpm(left_mm_s),
+                                   BspChassisOdom_MmSToMotorRpm(BSP_CHASSIS_ROTATION_RADIUS_MM *
+                                                                output.wz_rad_s),
+                                   BSP_CHASSIS_ODOM_MAX_CURRENT);
 }
 
-static HAL_StatusTypeDef HoldTargetYaw(float yaw_deg, float gyro_z_deg_s)
+static HAL_StatusTypeDef HoldTargetYaw(const BspChassisOdomPose *pose, float gyro_z_deg_s)
 {
-    return BspChassis_SetBodySpeedAngleHoldGyro(0.0f,
-                                                0.0f,
-                                                app_target_yaw_deg,
-                                                yaw_deg,
-                                                gyro_z_deg_s,
-                                                BSP_CHASSIS_ODOM_MAX_CURRENT);
+    return DriveLqr(pose, gyro_z_deg_s, pose->x_mm, pose->y_mm,
+                    app_target_yaw_deg, 0.0f, 0.0f, 0.0f, 0U, 0U, 1U,
+                    APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S);
 }
 
-static HAL_StatusTypeDef DriveDkMotor(float yaw_deg, float gyro_z_deg_s)
+static HAL_StatusTypeDef DriveDkMotor(const BspChassisOdomPose *pose, float gyro_z_deg_s)
 {
-    /* head_lock=0 的语义是先把车头转到 angle，再沿车体前方运动，而非世界方向平移。 */
-    if (app_dkmotor_speed_rpm <= 0.01f)
+    float speed_mm_s = BspChassisOdom_MotorRpmToMmS(app_dkmotor_speed_rpm);
+    float move_rad = app_dkmotor_angle_deg * app_pi / 180.0f;
+    float forward = speed_mm_s * cosf(move_rad);
+    float left = speed_mm_s * sinf(move_rad);
+    float yaw_rad = pose->yaw_deg * app_pi / 180.0f;
+    if (app_dkmotor_head_lock == 0U)
     {
-        return BspChassis_Stop();
+        if (IsYawAtTarget(app_target_yaw_deg, pose->yaw_deg) == 0U)
+            forward = left = 0.0f;
+        else
+        {
+            forward = speed_mm_s;
+            left = 0.0f;
+        }
     }
-
-    if (app_dkmotor_head_lock != 0U)
-    {
-        return BspChassis_SetPolarSpeedAngleHoldGyro(app_dkmotor_angle_deg,
-                                                     app_dkmotor_speed_rpm,
-                                                     app_target_yaw_deg,
-                                                     yaw_deg,
-                                                     gyro_z_deg_s,
-                                                     BSP_CHASSIS_ODOM_MAX_CURRENT);
-    }
-
-    if (IsYawAtTarget(app_target_yaw_deg, yaw_deg) == 0U)
-    {
-        return BspChassis_SetBodySpeedAngleHoldGyro(0.0f,
-                                                    0.0f,
-                                                    app_target_yaw_deg,
-                                                    yaw_deg,
-                                                    gyro_z_deg_s,
-                                                    BSP_CHASSIS_ODOM_MAX_CURRENT);
-    }
-
-    return BspChassis_SetBodySpeedAngleHoldGyro(app_dkmotor_speed_rpm,
-                                                0.0f,
-                                                app_target_yaw_deg,
-                                                yaw_deg,
-                                                gyro_z_deg_s,
-                                                BSP_CHASSIS_ODOM_MAX_CURRENT);
+    return DriveLqr(pose, gyro_z_deg_s, pose->x_mm, pose->y_mm, app_target_yaw_deg,
+                    forward * cosf(yaw_rad) - left * sinf(yaw_rad),
+                    forward * sinf(yaw_rad) + left * cosf(yaw_rad),
+                    0.0f, 0U, 0U, 1U, APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S);
 }
 
-static void HoldReachedMove(uint32_t now, float yaw_deg, float gyro_z_deg_s)
+static HAL_StatusTypeDef HoldReachedMove(uint32_t now,
+                                         const BspChassisOdomPose *pose,
+                                         float gyro_z_deg_s)
 {
     /* 到点后保持 yaw；满足最小保持时间且停稳，或达到最大等待时间，才发布 done。 */
-    (void)HoldTargetYaw(yaw_deg, gyro_z_deg_s);
+    HAL_StatusTypeDef status = HoldTargetYaw(pose, gyro_z_deg_s);
 
     if (app_hold_started == 0U)
     {
@@ -384,6 +369,7 @@ static void HoldReachedMove(uint32_t now, float yaw_deg, float gyro_z_deg_s)
         SetMode(APP_CHASSIS_MODE_IDLE);
         app_move_reached = 0U;
     }
+    return status;
 }
 
 void AppChassisTask_Init(void)
@@ -410,11 +396,22 @@ void AppChassisTask_Init(void)
     app_dkmotor_angle_deg = 0.0f;
     app_dkmotor_head_lock = 1U;
     app_move_profile = APP_CHASSIS_TASK_PROFILE_NORMAL;
+    app_velocity_forward_mm_s = 0.0f;
+    app_velocity_left_mm_s = 0.0f;
+    app_velocity_yaw_rad_s = 0.0f;
+    app_continuous_command_tick = 0U;
+    app_control_tick = 0U;
+    app_control_period_ms = 0U;
+    app_control_missed_deadlines = 0U;
+    app_control_started = 0U;
     (void)BspChassis_Stop();
 }
 
 HAL_StatusTypeDef AppChassisTask_SetMotionEnabled(uint8_t enabled)
 {
+    if ((enabled != 0U) &&
+        ((app_odom_ready == 0U) || (AreChassisMotorsOnline() == 0U)))
+        return HAL_BUSY;
     app_motion_enabled = (enabled != 0U) ? 1U : 0U;
 
     if (app_motion_enabled == 0U)
@@ -423,6 +420,9 @@ HAL_StatusTypeDef AppChassisTask_SetMotionEnabled(uint8_t enabled)
         app_done_event = APP_CHASSIS_TASK_DONE_NONE;
         app_move_reached = 0U;
         app_dkmotor_speed_rpm = 0.0f;
+        app_velocity_forward_mm_s = 0.0f;
+        app_velocity_left_mm_s = 0.0f;
+        app_velocity_yaw_rad_s = 0.0f;
         SetMode(APP_CHASSIS_MODE_IDLE);
         (void)BspChassis_Stop();
     }
@@ -450,6 +450,9 @@ HAL_StatusTypeDef AppChassisTask_CommandJustStop(void)
     app_done_event = APP_CHASSIS_TASK_DONE_NONE;
     app_move_reached = 0U;
     app_dkmotor_speed_rpm = 0.0f;
+    app_velocity_forward_mm_s = 0.0f;
+    app_velocity_left_mm_s = 0.0f;
+    app_velocity_yaw_rad_s = 0.0f;
     SetMode(APP_CHASSIS_MODE_IDLE);
 
     return HAL_OK;
@@ -506,7 +509,6 @@ HAL_StatusTypeDef AppChassisTask_CommandDkMotor(uint8_t speed_percent,
                                                 uint8_t head_lock)
 {
     /* 百分比先映射到线速度 [mm/s]，再按轮径/减速比换算为电机轴 rpm。 */
-    const BspChassisOdomPose *pose;
     float speed_mm_s;
 
     if ((app_motion_enabled == 0U) || (app_odom_ready == 0U) || (speed_percent > 100U))
@@ -517,27 +519,82 @@ HAL_StatusTypeDef AppChassisTask_CommandDkMotor(uint8_t speed_percent,
     app_done_event = APP_CHASSIS_TASK_DONE_NONE;
     app_active_command = APP_CHASSIS_TASK_DONE_NONE;
     app_move_reached = 0U;
+    if ((app_mode == APP_CHASSIS_MODE_DKMOTOR) &&
+        (app_dkmotor_head_lock == ((head_lock != 0U) ? 1U : 0U)) &&
+        (app_dkmotor_angle_deg == BspChassis_WrapAngle360(move_angle_deg)) &&
+        (app_dkmotor_speed_rpm == BspChassisOdom_MmSToMotorRpm(
+            ((float)speed_percent * APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S) / 100.0f)))
+    {
+        app_continuous_command_tick = HAL_GetTick();
+        return HAL_OK;
+    }
+    if ((app_mode != APP_CHASSIS_MODE_DKMOTOR) ||
+        (app_dkmotor_head_lock != ((head_lock != 0U) ? 1U : 0U)))
+        app_target_yaw_deg = ((head_lock != 0U) ?
+                              BspChassisOdom_GetPose()->yaw_deg :
+                              BspChassis_WrapAngle360(move_angle_deg));
+    else if (head_lock == 0U)
+        app_target_yaw_deg = BspChassis_WrapAngle360(move_angle_deg);
     app_dkmotor_head_lock = (head_lock != 0U) ? 1U : 0U;
     app_dkmotor_angle_deg = BspChassis_WrapAngle360(move_angle_deg);
+    app_continuous_command_tick = HAL_GetTick();
 
     if (speed_percent == 0U)
     {
         app_dkmotor_speed_rpm = 0.0f;
+        app_target_yaw_deg = BspChassisOdom_GetPose()->yaw_deg;
         SetMode(APP_CHASSIS_MODE_IDLE);
-        (void)BspChassis_Stop();
+        if (BspChassis_Stop() != HAL_OK)
+        {
+            StopForFault();
+            return HAL_ERROR;
+        }
         return HAL_OK;
     }
 
-    pose = BspChassisOdom_GetPose();
     speed_mm_s = ((float)speed_percent * APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S) / 100.0f;
     app_dkmotor_speed_rpm = BspChassisOdom_MmSToMotorRpm(speed_mm_s);
-    app_target_yaw_deg = (app_dkmotor_head_lock != 0U) ?
-                         pose->yaw_deg :
-                         app_dkmotor_angle_deg;
-    SetMode(APP_CHASSIS_MODE_DKMOTOR);
+    if (app_mode != APP_CHASSIS_MODE_DKMOTOR)
+        SetMode(APP_CHASSIS_MODE_DKMOTOR);
 
     return HAL_OK;
 }
+
+HAL_StatusTypeDef AppChassisTask_CommandVelocity(float forward_mm_s,
+                                                float left_mm_s,
+                                                float yaw_rad_s)
+{
+    if ((app_motion_enabled == 0U) || (app_odom_ready == 0U) ||
+        !isfinite(forward_mm_s) || !isfinite(left_mm_s) || !isfinite(yaw_rad_s) ||
+        hypotf(forward_mm_s, left_mm_s) > APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S ||
+        AbsFloat(yaw_rad_s) > APP_LQR_YAW_RATE_LIMIT_RAD_S)
+        return HAL_ERROR;
+    app_active_command = APP_CHASSIS_TASK_DONE_NONE;
+    app_done_event = APP_CHASSIS_TASK_DONE_NONE;
+    if ((app_mode == APP_CHASSIS_MODE_VELOCITY) &&
+        (app_velocity_forward_mm_s == forward_mm_s) &&
+        (app_velocity_left_mm_s == left_mm_s) &&
+        (app_velocity_yaw_rad_s == yaw_rad_s))
+    {
+        app_continuous_command_tick = HAL_GetTick();
+        return HAL_OK;
+    }
+    app_velocity_forward_mm_s = forward_mm_s;
+    app_velocity_left_mm_s = left_mm_s;
+    app_velocity_yaw_rad_s = yaw_rad_s;
+    app_continuous_command_tick = HAL_GetTick();
+    if ((AbsFloat(forward_mm_s) + AbsFloat(left_mm_s) + AbsFloat(yaw_rad_s)) < 0.001f)
+    {
+        app_target_yaw_deg = BspChassisOdom_GetPose()->yaw_deg;
+        SetMode(APP_CHASSIS_MODE_IDLE);
+    }
+    else if (app_mode != APP_CHASSIS_MODE_VELOCITY)
+        SetMode(APP_CHASSIS_MODE_VELOCITY);
+    return HAL_OK;
+}
+
+uint32_t AppChassisTask_GetControlPeriodMs(void) { return app_control_period_ms; }
+uint32_t AppChassisTask_GetMissedDeadlines(void) { return app_control_missed_deadlines; }
 
 HAL_StatusTypeDef AppChassisTask_GetRequestDelta(float *dx_cm,
                                                  float *dy_cm,
@@ -622,24 +679,65 @@ void AppChassisTask_Task(uint8_t yaw_valid,
                          uint8_t gyro_valid,
                          float gyro_z_deg_s)
 {
-    /* IMU yaw 是里程计和航向环的硬前置条件；失效时不尝试盲走。 */
+    /* The scheduler never catches up with bursts after a missed deadline. */
     uint32_t now = HAL_GetTick();
     const BspChassisOdomPose *pose;
+    HAL_StatusTypeDef drive_status = HAL_OK;
+    uint32_t elapsed;
 
-    if (yaw_valid == 0U)
+    if ((yaw_valid == 0U) || (gyro_valid == 0U) ||
+        !isfinite(yaw_deg) || !isfinite(gyro_z_deg_s))
     {
+        if (app_odom_ready != 0U) StopForFault();
         app_odom_ready = 0U;
-        app_active_command = APP_CHASSIS_TASK_DONE_NONE;
-        SetMode(APP_CHASSIS_MODE_WAIT_IMU);
-        (void)BspChassis_Stop();
+        if (app_mode != APP_CHASSIS_MODE_WAIT_IMU)
+            SetMode(APP_CHASSIS_MODE_WAIT_IMU);
+        if ((app_control_started == 0U) ||
+            ((now - app_control_tick) >= APP_LQR_PERIOD_MS))
+        {
+            app_control_tick = now;
+            (void)BspChassis_Stop();
+        }
         return;
     }
 
     yaw_deg = BspChassis_WrapAngle360(yaw_deg);
-    if (gyro_valid == 0U)
+    if ((app_motion_enabled != 0U) && (app_odom_ready != 0U) &&
+        (AreChassisMotorsOnline() == 0U))
     {
-        gyro_z_deg_s = 0.0f;
+        StopForFault();
+        return;
     }
+
+    if (((app_mode == APP_CHASSIS_MODE_DKMOTOR) ||
+         (app_mode == APP_CHASSIS_MODE_VELOCITY)) &&
+        (AppControlSafety_IsFresh(now, app_continuous_command_tick,
+                                  APP_CHASSIS_TASK_COMMAND_TIMEOUT_MS) == 0U))
+    {
+        StopForFault();
+        return;
+    }
+
+    if (app_control_started != 0U)
+    {
+        elapsed = now - app_control_tick;
+        if (elapsed < APP_LQR_PERIOD_MS) return;
+        app_control_period_ms = elapsed;
+        if (elapsed > (APP_LQR_PERIOD_MS + APP_LQR_PERIOD_MS / 2U))
+            app_control_missed_deadlines++;
+        if (elapsed > APP_CHASSIS_TASK_MAX_CONTROL_GAP_MS)
+        {
+            StopForFault();
+            app_control_tick = now;
+            return;
+        }
+    }
+    else
+    {
+        app_control_started = 1U;
+        app_control_period_ms = APP_LQR_PERIOD_MS;
+    }
+    app_control_tick = now;
 
     if (app_odom_ready == 0U)
     {
@@ -671,19 +769,20 @@ void AppChassisTask_Task(uint8_t yaw_valid,
     case APP_CHASSIS_MODE_MOVE:
         if (app_move_reached != 0U)
         {
-            HoldReachedMove(now, yaw_deg, gyro_z_deg_s);
+            drive_status = HoldReachedMove(now, pose, gyro_z_deg_s);
         }
         else if (IsMoveTargetReached(pose) != 0U)
         {
             app_move_reached = 1U;
             BspChassis_ResetPid();
-            HoldReachedMove(now, yaw_deg, gyro_z_deg_s);
+            drive_status = HoldReachedMove(now, pose, gyro_z_deg_s);
         }
         else
         {
-            (void)DriveAlongSegmentGyro(pose,
-                                        gyro_z_deg_s,
-                                        CalcProfileMaxSpeed(pose));
+            drive_status = DriveLqr(pose, gyro_z_deg_s, app_target_x_mm,
+                                    app_target_y_mm, app_target_yaw_deg,
+                                    0.0f, 0.0f, 0.0f, 1U, 1U, 1U,
+                                    CalcProfileMaxSpeed(pose));
         }
         break;
 
@@ -693,25 +792,40 @@ void AppChassisTask_Task(uint8_t yaw_valid,
         {
             MarkActiveCommandDone();
             SetMode(APP_CHASSIS_MODE_IDLE);
-            (void)HoldTargetYaw(yaw_deg, gyro_z_deg_s);
+            drive_status = HoldTargetYaw(pose, gyro_z_deg_s);
         }
         else
         {
-            (void)HoldTargetYaw(yaw_deg, gyro_z_deg_s);
+            drive_status = HoldTargetYaw(pose, gyro_z_deg_s);
         }
         break;
 
     case APP_CHASSIS_MODE_DKMOTOR:
-        (void)DriveDkMotor(yaw_deg, gyro_z_deg_s);
+        drive_status = DriveDkMotor(pose, gyro_z_deg_s);
         break;
 
+    case APP_CHASSIS_MODE_VELOCITY:
+    {
+        float yaw_rad = pose->yaw_deg * app_pi / 180.0f;
+        float cy = cosf(yaw_rad);
+        float sy = sinf(yaw_rad);
+        drive_status = DriveLqr(pose, gyro_z_deg_s, pose->x_mm, pose->y_mm,
+                                pose->yaw_deg,
+                                app_velocity_forward_mm_s * cy - app_velocity_left_mm_s * sy,
+                                app_velocity_forward_mm_s * sy + app_velocity_left_mm_s * cy,
+                                app_velocity_yaw_rad_s, 0U, 0U, 0U,
+                                APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S);
+        break;
+    }
+
     case APP_CHASSIS_MODE_WAIT_IMU:
-        (void)BspChassis_Stop();
+        drive_status = BspChassis_Stop();
         break;
 
     case APP_CHASSIS_MODE_IDLE:
     default:
-        (void)HoldTargetYaw(yaw_deg, gyro_z_deg_s);
+        drive_status = HoldTargetYaw(pose, gyro_z_deg_s);
         break;
     }
+    if (drive_status != HAL_OK) StopForFault();
 }

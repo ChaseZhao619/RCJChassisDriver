@@ -66,7 +66,7 @@ Copyright © 2026 ChaseZhao619 and contributors.
 
 - `firmware/stm32_chassis` 是 STM32F407 固件，负责电机、传感器、执行器和串口协议。
 - `apps/desktop_controller` 是 Ubuntu 本地上位机，负责地图、路径规划、串口控制和调试操作。
-- 上位机和树莓派通过串口协议控制 STM32，常用命令包括 `cmd_dis`、`cmd_turn`、`cmd_dkmotor`。
+- 上位机和树莓派通过串口协议控制 STM32，常用命令包括 `cmd_dis`、`cmd_turn`、`cmd_dkmotor` 和 `cmd_vel`。
 - STM32 固件是交叉编译工程；上位机是 Ubuntu 本机编译工程，两者使用不同 CMake preset 和不同 build 目录。
 - 调试底盘前必须先保证急停、架空测试和运动方向检查可用。
 
@@ -135,6 +135,7 @@ build/host/debug/apps/desktop_controller/rcj_appforchase
 - 想烧录和调试 STM32：读 [`firmware/stm32_chassis/README.md`](firmware/stm32_chassis/README.md)。
 - 想发串口命令控制底盘：读 [`firmware/stm32_chassis/App/README.md`](firmware/stm32_chassis/App/README.md)。
 - 想调 PID、方向、里程计：读 [`firmware/stm32_chassis/Bsp/README.md`](firmware/stm32_chassis/Bsp/README.md)。
+- 离散 LQR 实验分支的模型、续发协议与仿真：读 [`docs/lqr-experiment.md`](docs/lqr-experiment.md)。
 - 想使用图形上位机：读 [`apps/desktop_controller/README.md`](apps/desktop_controller/README.md)。
 
 ## 工作原理

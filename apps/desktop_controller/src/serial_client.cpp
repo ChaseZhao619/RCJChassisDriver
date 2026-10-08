@@ -9,6 +9,14 @@ namespace rcj {
 SerialClient::SerialClient(QObject *parent)
     : QObject(parent)
 {
+    continuousTimer_.setInterval(100);
+    connect(&continuousTimer_, &QTimer::timeout, this, [this]() {
+        if (!isConnected() || continuousPayload_.isEmpty()) {
+            continuousTimer_.stop();
+            return;
+        }
+        transmitPayload(continuousPayload_, false);
+    });
     connect(&serial_, &QSerialPort::readyRead, this, &SerialClient::readSerialData);
     connect(&serial_, &QSerialPort::errorOccurred, this, [this](QSerialPort::SerialPortError error) {
         if (error == QSerialPort::NoError) {
@@ -52,6 +60,8 @@ bool SerialClient::openPort(const QString &portName)
 
 void SerialClient::closePort()
 {
+    continuousTimer_.stop();
+    continuousPayload_.clear();
     if (serial_.isOpen()) {
         emit logLine(QStringLiteral("已关闭串口：%1").arg(serial_.portName()));
         serial_.close();
@@ -67,6 +77,10 @@ bool SerialClient::isConnected() const
 void SerialClient::setSimulated(bool enabled)
 {
     simulated_ = enabled;
+    if (!isConnected()) {
+        continuousTimer_.stop();
+        continuousPayload_.clear();
+    }
     emit logLine(enabled ? QStringLiteral("模拟回复：开启") : QStringLiteral("模拟回复：关闭"));
     emit connectionChanged(isConnected());
 }
@@ -78,8 +92,30 @@ bool SerialClient::isSimulated() const
 
 void SerialClient::sendPayload(const QString &payload)
 {
+    const QString command = payload.section(QLatin1Char(' '), 0, 0);
+    if (command == QStringLiteral("cmd_vel") || command == QStringLiteral("cmd_dkmotor")) {
+        const QStringList parts = payload.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        bool moving = false;
+        if (command == QStringLiteral("cmd_dkmotor") && parts.size() >= 2)
+            moving = parts.at(1).toDouble() > 0.0;
+        if (command == QStringLiteral("cmd_vel") && parts.size() == 4)
+            moving = parts.at(1).toDouble() != 0.0 || parts.at(2).toDouble() != 0.0 ||
+                     parts.at(3).toDouble() != 0.0;
+        continuousPayload_ = moving ? payload : QString();
+        if (moving && isConnected()) continuousTimer_.start();
+        else continuousTimer_.stop();
+    } else if (command == QStringLiteral("cmd_dis") || command == QStringLiteral("cmd_turn") ||
+               command == QStringLiteral("cmd_juststop") || command == QStringLiteral("cmd_conmotion")) {
+        continuousTimer_.stop();
+        continuousPayload_.clear();
+    }
+    transmitPayload(payload, true);
+}
+
+void SerialClient::transmitPayload(const QString &payload, bool logFrame)
+{
     const QString frame = buildFrame(payload);
-    emit logLine(QStringLiteral("TX: %1").arg(frame.trimmed()));
+    if (logFrame) emit logLine(QStringLiteral("TX: %1").arg(frame.trimmed()));
 
     if (simulated_) {
         emitSimulatedReply(payload);
@@ -91,7 +127,11 @@ void SerialClient::sendPayload(const QString &payload)
         return;
     }
 
-    serial_.write(frame.toUtf8());
+    if (serial_.write(frame.toUtf8()) < 0) {
+        continuousTimer_.stop();
+        continuousPayload_.clear();
+        emit logLine(QStringLiteral("串口写入失败，持续运动续发已停止"));
+    }
 }
 
 void SerialClient::readSerialData()
@@ -121,6 +161,16 @@ void SerialClient::handleLine(const QString &line)
     if (!parsed.valid) {
         emit logLine(QStringLiteral("接收帧无效：%1").arg(parsed.error));
         return;
+    }
+
+    if (!continuousPayload_.isEmpty()) {
+        const QString activeCommand = continuousPayload_.section(QLatin1Char(' '), 0, 0);
+        if (parsed.payload.startsWith(activeCommand + QStringLiteral(" busy")) ||
+            parsed.payload.startsWith(activeCommand + QStringLiteral(" eror")) ||
+            parsed.payload == QStringLiteral("err arg")) {
+            continuousTimer_.stop();
+            continuousPayload_.clear();
+        }
     }
 
     emit payloadReceived(parsed.payload);

@@ -1,4 +1,5 @@
 #include "bsp_chassis.h"
+#include "bsp_pid_antiwindup.h"
 
 #include "bsp_motor.h"
 #include <math.h>
@@ -134,6 +135,8 @@ static float CalcPidOutput(ChassisPidState *pid,
                            float ki,
                            float kd,
                            float integral_limit,
+                           float feedforward,
+                           float output_limit,
                            uint32_t now)
 {
     float dt = 0.01f;
@@ -158,12 +161,13 @@ static float CalcPidOutput(ChassisPidState *pid,
         pid->initialized = 1U;
     }
 
-    pid->integral += error * dt;
-    pid->integral = LimitFloat(pid->integral, integral_limit);
+    pid->integral = BspPid_NextIntegral(pid->integral, error, dt,
+                                        integral_limit, feedforward, kp, ki,
+                                        kd, derivative, output_limit);
     pid->last_error = error;
     pid->last_tick = now;
 
-    return (kp * error) + (ki * pid->integral) + (kd * derivative);
+    return feedforward + kp * error + ki * pid->integral + kd * derivative;
 }
 
 static HAL_StatusTypeDef SendLimitedCurrents(int16_t motor1,
@@ -354,11 +358,14 @@ HAL_StatusTypeDef BspChassis_SetWheelSpeeds(const BspChassisWheelSpeedTarget *ta
     float target_rpm[4];
     float current[4];
     uint8_t i;
+    float current_limit = (float)Abs16(max_current);
 
     if (target == NULL)
     {
         return HAL_ERROR;
     }
+    if (current_limit > BSP_MOTOR_C610_MAX_CURRENT)
+        current_limit = BSP_MOTOR_C610_MAX_CURRENT;
 
     chassis_last_speed_target = *target;
     target_rpm[0] = target->motor1_rpm;
@@ -368,16 +375,22 @@ HAL_StatusTypeDef BspChassis_SetWheelSpeeds(const BspChassisWheelSpeedTarget *ta
 
     for (i = 0U; i < 4U; i++)
     {
+        if (BspMotor_IsOnline((uint8_t)(i + 1U), 200U) == 0U)
+        {
+            (void)BspChassis_Stop();
+            return HAL_ERROR;
+        }
         float feedback_rpm = GetLogicalMotorRpm(i);
         float error = target_rpm[i] - feedback_rpm;
 
-        current[i] = (target_rpm[i] * BSP_CHASSIS_WHEEL_SPEED_KF) +
-                     CalcPidOutput(&wheel_speed_pid[i],
+        current[i] = CalcPidOutput(&wheel_speed_pid[i],
                                    error,
                                    BSP_CHASSIS_WHEEL_SPEED_KP,
                                    BSP_CHASSIS_WHEEL_SPEED_KI,
                                    BSP_CHASSIS_WHEEL_SPEED_KD,
                                    BSP_CHASSIS_WHEEL_SPEED_I_LIMIT,
+                                   target_rpm[i] * BSP_CHASSIS_WHEEL_SPEED_KF,
+                                   current_limit,
                                    now);
     }
 
@@ -610,6 +623,8 @@ float BspChassis_CalcAngleSpeedGyro(float target_yaw_deg,
                            BSP_CHASSIS_ANGLE_KP,
                            0.0f,
                            BSP_CHASSIS_ANGLE_KD,
+                           0.0f,
+                           0.0f,
                            0.0f,
                            now);
     output -= gyro_feedback * BSP_CHASSIS_ANGLE_GYRO_KD;

@@ -97,6 +97,17 @@ void BspChassisOdom_Update(float yaw_deg)
         odom_pose.yaw_deg = BspChassis_WrapAngle360(yaw_deg);
         return;
     }
+    if ((BspMotor_IsOnline(1U, 200U) == 0U) ||
+        (BspMotor_IsOnline(2U, 200U) == 0U) ||
+        (BspMotor_IsOnline(3U, 200U) == 0U) ||
+        (BspMotor_IsOnline(4U, 200U) == 0U))
+    {
+        odom_pose.vx_mm_s = 0.0f;
+        odom_pose.vy_mm_s = 0.0f;
+        odom_pose.body_forward_mm_s = 0.0f;
+        odom_pose.body_left_mm_s = 0.0f;
+        return;
+    }
 
     m1_rpm = GetLogicalMotorRpm(1U);
     m2_rpm = GetLogicalMotorRpm(2U);

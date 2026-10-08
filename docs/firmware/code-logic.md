@@ -214,7 +214,7 @@ CRC 使用 CRC16-CCITT，初值 `0xFFFF`，计算范围是 `*` 前面的 payload
 
 `cmd_dis` 和 `cmd_turn` 是有完成事件的命令。底盘任务完成后，`AppChassisTask_ConsumeDoneEvent()` 被 `AppPiComm_Task()` 消费，然后串口发送 `done`。
 
-`cmd_dkmotor` 是持续控制模式，不发送 `done`；需要停止时发送 `cmd_juststop` 或速度 `0`。
+`cmd_dkmotor` 是持续控制模式，不发送 `done`；需要停止时发送 `cmd_juststop` 或速度 `0`。在 LQR 实验分支中它还必须每 300 ms 内续发，否则锁定运动许可并停车；新增 `cmd_vel` 也遵守该规则。控制模型见 [`../lqr-experiment.md`](../lqr-experiment.md)。
 
 ## 底盘任务状态机
 
@@ -274,10 +274,10 @@ AppChassisTask_Task(yaw_valid, yaw_deg, gyro_valid, gyro_z_deg_s)
 各模式行为：
 
 - `IDLE`：调用 `HoldTargetYaw()`，也就是车不平移，但保持目标车头方向。
-- `MOVE`：按起点到目标点的线段走。代码会根据线段方向计算沿线速度和横向纠偏速度，尽量保证走直线。
+- `MOVE`：LQR 同时反馈世界坐标位置与速度，沿程曲线限制最大速度；不再使用旧 `LINE_CROSS_*` 比例纠偏。
 - `TURN`：只控制 yaw，达到目标角度并稳定停车后产生 `done`。
 - `DKMOTOR`：
-  - `head_lock = 1`：锁住命令发出瞬间的 yaw，按给定运动角度平移，使用带 gyro 反馈的角度环。
+  - `head_lock = 1`：锁住命令发出瞬间的 yaw，按给定运动角度平移，使用含 gyro 角速度状态的 LQR 外环。
   - `head_lock = 0`：先转到目标角度，再向车头前方直行。
   - 该模式没有加减速规划，使用轮速闭环和车头角度保持。
 
@@ -286,6 +286,7 @@ AppChassisTask_Task(yaw_valid, yaw_deg, gyro_valid, gyro_z_deg_s)
 - `AppChassisTask_CommandDistanceCm()`：记录当前位置作为起点，设置目标 `x/y`，并保存 `cmd_dis` 的速度曲线档位。
 - `AppChassisTask_CommandTurnDeg()`：设置目标 yaw。
 - `AppChassisTask_CommandDkMotor()`：设置持续运动速度、方向、锁头模式。
+- `AppChassisTask_CommandVelocity()`：设置需续发的车体速度目标。
 - `AppChassisTask_CommandJustStop()`：清持续运动速度，回到 `IDLE`，继续保持转向环。
 - `AppChassisTask_SetMotionEnabled()`：整体使能/失能底盘运动。
 - `AppChassisTask_OnYawZero()`：yaw 归零后重置里程计和目标 yaw。
@@ -670,7 +671,7 @@ BNO085
   -> Bno085_ReadSensorData()
   -> yaw_deg / gyro_z_deg_s
   -> AppChassisTask_Task()
-  -> BspChassis_CalcAngleSpeedGyro()
+  -> AppLqr_Calculate() 的航向状态反馈
   -> 四轮目标速度叠加旋转分量
 ```
 

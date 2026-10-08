@@ -3,6 +3,7 @@
 #include <QtCore/QObject>
 #include <QtCore/QString>
 #include <QtCore/QStringList>
+#include <QtCore/QTimer>
 #include <QtSerialPort/QSerialPort>
 #include <QtSerialPort/QSerialPortInfo>
 
@@ -33,10 +34,13 @@ private slots:
 private:
     void handleLine(const QString &line);
     void emitSimulatedReply(const QString &payload);
+    void transmitPayload(const QString &payload, bool logFrame);
 
     QSerialPort serial_;
     QByteArray rxBuffer_;
     bool simulated_ = false;
+    QTimer continuousTimer_;
+    QString continuousPayload_;
 };
 
 } // namespace rcj

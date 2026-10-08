@@ -12,9 +12,15 @@ if(NOT DEFINED RCJ_BUILD_HOST_APP)
     endif()
 endif()
 option(RCJ_BUILD_HOST_APP "Build the Ubuntu host application" ${RCJ_BUILD_HOST_APP})
+option(RCJ_BUILD_CONTROL_TESTS "Build host-only control simulations" OFF)
 
 if(RCJ_BUILD_STM32)
     add_subdirectory(firmware/stm32_chassis)
+endif()
+
+if(RCJ_BUILD_CONTROL_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
 endif()
 
 if(RCJ_BUILD_HOST_APP AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/apps/desktop_controller/CMakeLists.txt")

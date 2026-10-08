@@ -43,7 +43,7 @@ Copyright © 2026 ChaseZhao619 and contributors.
 - `app_chassis_task` 负责底盘状态机，包括等待 IMU、空闲、移动、转向和持续运动。
 - 串口命令必须带 CRC，格式错误或 CRC 错误不会触发执行器。
 - `cmd_dis` 是相对位移，不是绝对坐标。
-- `cmd_dkmotor` 是持续运动命令，需要主动发送停止或速度 0。
+- `cmd_dkmotor` 与 `cmd_vel` 是持续运动命令，每 300 ms 内需要有效续发；失联会停车并锁定运动许可。
 
 ## 快速开始
 
@@ -113,9 +113,10 @@ USART6 接收中断
 | --- | --- | --- |
 | `WAIT_IMU` | 电机停止，等待有效偏航角 | 收到有效 yaw 后初始化里程计 |
 | `IDLE` | 保持最后目标航向 | 收到有效运动命令 |
-| `MOVE` | 按速度曲线沿线段运动并纠正横向误差 | 到达位置/进度阈值且完成停稳确认 |
+| `MOVE` | LQR 跟踪世界坐标目标，沿程曲线限制最高速度 | 到达位置/进度与横向容差且完成停稳确认 |
 | `TURN` | 原地保持目标偏航角 | 角度进入容差且电机持续停稳 |
-| `DKMOTOR` | 持续方向运动，可选锁定车头 | 新命令、速度 0 或停止/禁用命令 |
+| `DKMOTOR` | 持续方向运动，可选锁定车头 | 新命令、速度 0、停止/禁用或续发超时 |
+| `VELOCITY` | 持续车体速度命令 | 新命令、全零速度、停止/禁用或续发超时 |
 
 IMU yaw 无效时，状态机会立即回到 `WAIT_IMU`，取消活动命令并发送停车指令。`cmd_conmotion 0` 会取消活动命令和待发送完成事件，不会为被取消的命令发送 `done`。
 
@@ -173,7 +174,9 @@ uint16_t crc16_ccitt(const uint8_t *data, uint16_t size)
 | --- | --- | --- | --- |
 | `cmd_dis x y [profile]` | `x/y: cm`, `profile: 0..2` | 让底盘移动指定相对距离 | 高；会驱动底盘，等待 `done` 后再发下一条运动命令 |
 | `cmd_turn yaw` | `yaw: deg` | 转到绝对偏航角 | 高；依赖 IMU yaw |
-| `cmd_dkmotor speed angle [head_lock]` | `speed: 0..100`, `angle: deg`, `head_lock: 0/1` | 持续方向运动或遥控 | 高；必须主动停止 |
+| `cmd_dkmotor speed angle [head_lock]` | `speed: 0..100`, `angle: deg`, `head_lock: 0/1` | 持续方向运动或遥控 | 高；100 ms 续发，300 ms 失联停车 |
+| `cmd_vel forward left ccw` | `forward/left: mm/s`, `ccw: rad/s` | 连续车体速度 | 高；100 ms 续发，300 ms 失联停车 |
+| `cmd_ctrlstat` | 无 | 查询周期、超期计数、运动许可 | 低；只读 |
 | `cmd_juststop` | 无 | 停止当前底盘命令 | 中；不关闭底盘运动使能 |
 | `cmd_conmotion enabled` | `0/1` | 启用/禁用底盘运动 | 高；`0` 应作为软件停车手段 |
 | `cmd_request` | 无 | 查询里程增量和当前 yaw | 低；适合周期查询，但频率不宜过高 |
@@ -234,7 +237,7 @@ err arg *<CRC16>
 
 ### `cmd_dkmotor`
 
-进入持续速度控制模式。该模式不做加减速规划，需要停止时发送速度 `0` 或 `cmd_juststop`。
+进入持续速度控制模式。须每 300 ms 内续发同一命令；主动停止可发送速度 `0` 或 `cmd_juststop`。超时后还需在反馈恢复时用 `cmd_conmotion 1` 重新使能。
 
 ```text
 cmd_dkmotor <speed_percent> <move_angle_deg> [head_lock] *<CRC16>
@@ -243,6 +246,14 @@ cmd_dkmotor <speed_percent> <move_angle_deg> [head_lock] *<CRC16>
 - `speed_percent`：范围 `0-100`。`100` 对应 `APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S`。
 - `move_angle_deg`：`0` 为车体前方，`90` 为车体左方。
 - `head_lock`：默认 `1`。`1` 保持当前车头方向平移；`0` 先转到对应角度再前进。
+
+### `cmd_vel`
+
+`cmd_vel <forward_mm_s> <left_mm_s> <ccw_rad_s> *<CRC16>` 以车体前/左/逆时针为正，合成平移速度上限 `650 mm/s`，角速度上限 `2 rad/s`。每 300 ms 内必须续发；发送 `cmd_vel 0 0 0` 会退出持续模式。回复为 `cmd_vel ok ...` 或 `cmd_vel busy ...`；参数越界返回 `err arg`。
+
+### `cmd_ctrlstat`
+
+`cmd_ctrlstat *<CRC16>` 返回 `cmd_ctrlstat <last_period_ms> <missed_deadlines> <motion_enabled>`。控制周期目标为 10 ms，超过 15 ms 记一次超期，超过 50 ms 故障停车；主循环仍包含阻塞式外设访问，并非硬实时保证。模型与仿真见 [`../../../docs/lqr-experiment.md`](../../../docs/lqr-experiment.md)。
 
 ### `cmd_request`
 
@@ -297,13 +308,13 @@ cmd_request <dx_cm> <dy_cm> <dyaw_deg> <yaw_deg> *<CRC16>
 
 ### `cmd_dis` 调参顺序
 
-1. 先完成 `Bsp` 层电机方向、轮速环、偏航环和里程计比例标定。
+1. 先完成电机方向、轮速内环、陀螺仪方向和里程计比例标定。
 2. 使用较低 `MOVE_SPEED_MM_S` 验证目标坐标和运动方向。
-3. 调整 `LINE_CROSS_KP`：增大可更快回到目标线，过大会蛇形振荡。
-4. 用 `LINE_CROSS_MAX_MM_S` 限制最大横向纠偏速度。
-5. 用 `LINE_CROSS_DEADBAND_MM` 忽略里程计的小幅横向噪声。
-6. 调整速度曲线指数和 `PROFILE_MIN_SCALE`，最后再提高最高速度。
-7. 根据实际制动距离调整完成进度、停车转速阈值和停稳时间。
+3. 辨识平移/航向时间常数，重新运行 `tools/lqr_gain.py` 并验证 LQR 增益。
+4. 调整速度曲线指数和 `PROFILE_MIN_SCALE`，最后再提高最高速度。
+5. 根据实际制动距离调整完成进度、停车转速阈值和停稳时间。
+
+`LINE_CROSS_*` 和 `MIN_SPEED_DISTANCE_MM` 属于旧 P 外环调参项，在此分支的 `MOVE` 路径中不生效。
 
 ### 速度曲线
 
@@ -313,7 +324,7 @@ cmd_request <dx_cm> <dy_cm> <dyaw_deg> <yaw_deg> *<CRC16>
 - `NORMAL(1)`：原始正弦曲线。
 - `SMOOTH(2)`：指数大于 1，起步和停车更缓。
 
-`PROFILE_MIN_SCALE` 为曲线的最低比例。数值过小可能因静摩擦无法启动，过大则会增加终点超调。`MIN_SPEED_DISTANCE_MM` 只允许在距离终点较远时强制最低速度，避免接近目标仍被最小速度推动。
+`PROFILE_MIN_SCALE` 为曲线施加的最低**上限比例**，并非强制最低车速；LQR 在终点仍可输出零速度。
 
 ### 停稳与完成事件
 
@@ -333,7 +344,7 @@ cmd_request <dx_cm> <dy_cm> <dyaw_deg> <yaw_deg> *<CRC16>
 
 ### `cmd_dkmotor 50 0` 会自己停吗？
 
-不会。它是持续运动命令，需要发送 `cmd_dkmotor 0 0`、`cmd_juststop` 或 `cmd_conmotion 0` 停止。
+若 300 ms 内未续发有效命令，会故障停车且需要重新使能。正常结束仍应主动发送 `cmd_dkmotor 0 0`、`cmd_juststop` 或 `cmd_conmotion 0`。
 
 ### 为什么直接输入 `cmd_dis 10 0` 没反应？
 

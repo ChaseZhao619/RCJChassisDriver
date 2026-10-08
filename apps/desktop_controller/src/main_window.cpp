@@ -285,6 +285,26 @@ QWidget *MainWindow::createMotionTab()
     speedProfileSpin_->setRange(0, 2);
     speedProfileSpin_->setValue(1);
 
+    auto *velocityBox = new QGroupBox(QStringLiteral("车体速度"), page);
+    auto *velocityForm = new QFormLayout(velocityBox);
+    velocityForwardSpin_ = new QDoubleSpinBox(velocityBox);
+    velocityLeftSpin_ = new QDoubleSpinBox(velocityBox);
+    velocityYawSpin_ = new QDoubleSpinBox(velocityBox);
+    for (QDoubleSpinBox *spin : {velocityForwardSpin_, velocityLeftSpin_}) {
+        spin->setRange(-650.0, 650.0);
+        spin->setDecimals(1);
+        spin->setSuffix(QStringLiteral(" mm/s"));
+    }
+    velocityYawSpin_->setRange(-2.0, 2.0);
+    velocityYawSpin_->setDecimals(2);
+    velocityYawSpin_->setSuffix(QStringLiteral(" rad/s"));
+    auto *velocityStart = new QPushButton(QStringLiteral("发送速度"), velocityBox);
+    auto *velocityStop = new QPushButton(QStringLiteral("停止"), velocityBox);
+    velocityForm->addRow(QStringLiteral("前进"), velocityForwardSpin_);
+    velocityForm->addRow(QStringLiteral("左移"), velocityLeftSpin_);
+    velocityForm->addRow(QStringLiteral("逆时针"), velocityYawSpin_);
+    velocityForm->addRow(velocityStart, velocityStop);
+
     layout->addWidget(addWaypoint);
     layout->addWidget(selectMode);
     layout->addWidget(deleteWaypoint);
@@ -294,6 +314,7 @@ QWidget *MainWindow::createMotionTab()
     layout->addWidget(nudgeBox);
     layout->addWidget(new QLabel(QStringLiteral("速度曲线：0 急 / 1 正常 / 2 柔和"), page));
     layout->addWidget(speedProfileSpin_);
+    layout->addWidget(velocityBox);
     layout->addWidget(planButton);
     layout->addWidget(executeButton);
     layout->addWidget(stopButton);
@@ -305,6 +326,20 @@ QWidget *MainWindow::createMotionTab()
     connect(planButton, &QPushButton::clicked, this, &MainWindow::planPath);
     connect(executeButton, &QPushButton::clicked, this, &MainWindow::executePath);
     connect(stopButton, &QPushButton::clicked, this, &MainWindow::stopMotion);
+    connect(velocityStart, &QPushButton::clicked, this, [this]() {
+        const double vx = velocityForwardSpin_->value();
+        const double vy = velocityLeftSpin_->value();
+        if (std::hypot(vx, vy) > 650.0) {
+            log(QStringLiteral("合成平移速度不能超过 650 mm/s"));
+            return;
+        }
+        executionState_ = ExecutionState::Idle;
+        executionPath_.clear();
+        sendCommand(QStringLiteral("cmd_vel %1 %2 %3")
+                        .arg(vx, 0, 'f', 1).arg(vy, 0, 'f', 1)
+                        .arg(velocityYawSpin_->value(), 0, 'f', 2));
+    });
+    connect(velocityStop, &QPushButton::clicked, this, &MainWindow::stopMotion);
     connect(waypointHeadingCheck_, &QCheckBox::toggled, this, [this](bool checked) {
         if (updatingWaypointControls_) {
             return;

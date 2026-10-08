@@ -40,6 +40,7 @@ Copyright © 2026 ChaseZhao619 and contributors.
 - 上位机运行在 Ubuntu 本机，不运行在 STM32 上。
 - 串口参数固定为 `115200 8N1`。
 - 上位机通过 USART6 协议和 STM32 通信，协议说明见 [`../../firmware/stm32_chassis/App/README.md`](../../firmware/stm32_chassis/App/README.md)。
+- 运动页可发送 `cmd_vel`；连接保持且命令非零时每 100 ms 续发，停止或断开串口时停止续发。固件 300 ms 失联停车。
 - 地图规划结果会被分段转换为底盘运动命令。
 - 首次联调前，应先确认固件能单独执行 `cmd_dis` 和 `cmd_turn`。
 

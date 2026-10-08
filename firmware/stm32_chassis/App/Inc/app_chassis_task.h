@@ -170,6 +170,10 @@ typedef enum
 #define APP_CHASSIS_TASK_DKMOTOR_MAX_SPEED_MM_S 650.0f
 #endif
 
+#define APP_CHASSIS_TASK_COMMAND_TIMEOUT_MS 300U
+#define APP_CHASSIS_TASK_MOTOR_TIMEOUT_MS 200U
+#define APP_CHASSIS_TASK_MAX_CONTROL_GAP_MS 50U
+
 /* 初始化为等待 IMU 状态并停车；主循环开始前调用一次。 */
 void AppChassisTask_Init(void);
 /*
@@ -197,6 +201,12 @@ HAL_StatusTypeDef AppChassisTask_CommandTurnDeg(float target_yaw_deg);
 HAL_StatusTypeDef AppChassisTask_CommandDkMotor(uint8_t speed_percent,
                                                 float move_angle_deg,
                                                 uint8_t head_lock);
+/* Continuous body-frame velocity command; refresh at least once per 300 ms. */
+HAL_StatusTypeDef AppChassisTask_CommandVelocity(float forward_mm_s,
+                                                float left_mm_s,
+                                                float yaw_rad_s);
+uint32_t AppChassisTask_GetControlPeriodMs(void);
+uint32_t AppChassisTask_GetMissedDeadlines(void);
 /*
  * 取得自上次调用以来的世界坐标增量 [cm]、最短有符号 yaw 增量 [deg] 和当前 yaw。
  * 第一次成功调用返回零增量；调用本身会更新下一次计算的基准。
@@ -210,8 +220,8 @@ AppChassisTaskDoneEvent AppChassisTask_ConsumeDoneEvent(void);
 /* yaw 软件归零后的同步入口：保留当前 x/y，重置里程计 yaw 并取消活动命令。 */
 void AppChassisTask_OnYawZero(float yaw_deg);
 /*
- * 周期状态机入口。yaw 无效会立即停车并取消活动命令；gyro 无效时按 0 deg/s 降级。
- * 调用周期应稳定并与 BspChassisOdom_Update() 所需的控制周期一致。
+ * 周期状态机入口。IMU 或电机反馈无效时锁定运动许可并停车。
+ * 可以从主循环频繁调用，内部以 10 ms 为目标调度控制步骤。
  */
 void AppChassisTask_Task(uint8_t yaw_valid,
                          float yaw_deg,

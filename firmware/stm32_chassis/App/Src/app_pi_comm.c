@@ -1,6 +1,7 @@
 #include "app_pi_comm.h"
 
 #include "app_chassis_task.h"
+#include "app_velocity_command.h"
 #include "bsp_be1732.h"
 #include "bsp_dct.h"
 #include "bsp_kick_motor.h"
@@ -9,6 +10,7 @@
 #include "bsp_usart.h"
 #include "usart.h"
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,33 +45,7 @@ static void StartReceive(void)
 
 uint16_t AppPiComm_Crc16Ccitt(const uint8_t *data, uint16_t size)
 {
-    /* CCITT-FALSE：init=FFFF, poly=1021, 非反射；NULL 输入返回初值。 */
-    uint16_t crc = 0xFFFFU;
-    uint16_t i;
-    uint8_t bit;
-
-    if (data == NULL)
-    {
-        return crc;
-    }
-
-    for (i = 0U; i < size; i++)
-    {
-        crc ^= (uint16_t)data[i] << 8;
-        for (bit = 0U; bit < 8U; bit++)
-        {
-            if ((crc & 0x8000U) != 0U)
-            {
-                crc = (uint16_t)((crc << 1) ^ 0x1021U);
-            }
-            else
-            {
-                crc <<= 1;
-            }
-        }
-    }
-
-    return crc;
+    return AppVelocity_Crc16Ccitt(data, size);
 }
 
 static char *SkipSpaces(char *text)
@@ -107,7 +83,7 @@ static uint8_t ReadFloat(char **cursor, float *value)
 
     *cursor = SkipSpaces(*cursor);
     *value = strtof(*cursor, &endptr);
-    if (endptr == *cursor)
+    if ((endptr == *cursor) || !isfinite(*value))
     {
         return 0U;
     }
@@ -367,6 +343,9 @@ static void HandlePayload(char *payload)
     float x_cm;
     float y_cm;
     float yaw_deg;
+    float forward_mm_s;
+    float left_mm_s;
+    float yaw_rad_s;
     float dx_cm;
     float dy_cm;
     float dyaw_deg;
@@ -456,6 +435,19 @@ static void HandlePayload(char *payload)
         {
             SendCommandStateReply("cmd_turn", "busy", payload + 8U);
         }
+        return;
+    }
+
+    if (strncmp(payload, "cmd_vel", 7U) == 0)
+    {
+        cursor = payload + 7U;
+        if (AppVelocity_Parse(cursor, &forward_mm_s, &left_mm_s, &yaw_rad_s) == 0U)
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+        status = AppChassisTask_CommandVelocity(forward_mm_s, left_mm_s, yaw_rad_s);
+        SendCommandStateReply("cmd_vel", (status == HAL_OK) ? "ok" : "busy", payload + 7U);
         return;
     }
 
@@ -805,6 +797,22 @@ static void HandlePayload(char *payload)
                            BspBe1732_GetLastI2cError());
             SendPayloadWithCrc(response);
         }
+        return;
+    }
+
+    if (strncmp(payload, "cmd_ctrlstat", 12U) == 0)
+    {
+        cursor = payload + 12U;
+        if (EnsureLineEnded(cursor) == 0U)
+        {
+            SendPayloadWithCrc("err arg");
+            return;
+        }
+        (void)snprintf(response, sizeof(response), "cmd_ctrlstat %lu %lu %u",
+                       (unsigned long)AppChassisTask_GetControlPeriodMs(),
+                       (unsigned long)AppChassisTask_GetMissedDeadlines(),
+                       (unsigned int)AppChassisTask_IsMotionEnabled());
+        SendPayloadWithCrc(response);
         return;
     }
 

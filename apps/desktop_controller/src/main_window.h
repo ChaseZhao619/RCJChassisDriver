@@ -80,6 +80,9 @@ private:
     QDoubleSpinBox *waypointYSpin_ = nullptr;
     QDoubleSpinBox *waypointStepSpin_ = nullptr;
     QSpinBox *speedProfileSpin_ = nullptr;
+    QDoubleSpinBox *velocityForwardSpin_ = nullptr;
+    QDoubleSpinBox *velocityLeftSpin_ = nullptr;
+    QDoubleSpinBox *velocityYawSpin_ = nullptr;
     QSpinBox *suckSpeedSpin_ = nullptr;
     QSpinBox *kickSpeedSpin_ = nullptr;
     QCheckBox *kickReverseCheck_ = nullptr;
